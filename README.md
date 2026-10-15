@@ -18,4 +18,4 @@ Earbud ◄── Android TTS ◄┘  ◄──── whisper text ──┘  ses
 * **Multi-speaker (best effort, v1):** turns labelled Me/Them by which mic hears them louder. True diarization is v2.
 
 ## Server
-`server/` – `docker compose up -d --build` on PC01. Admin page: `http://127.0.0.1:3110/admin?k=<C:\javis-whisper\data\admin_token.txt>` (pairing codes, device list, revoke, export). Backups every 6 h to `data/backups` (14 kept) and `data/exports/javis-whisper-latest.json`.
+`server/` – `docker compose up -d --build` on PC01. Public API: https://whisper.neuereatec.org (Cloudflare tunnel → localhost:3110; only `/health` and token-protected `/api/*` answer — `/admin` returns 404 through the tunnel). Admin page (PC01 only): `http://127.0.0.1:3110/admin?k=<C:\javis-whisper\data\admin_token.txt>` (pairing codes, device list, revoke, export). Backups every 6 h to `data/backups` (14 kept) and `data/exports/javis-whisper-latest.json`.

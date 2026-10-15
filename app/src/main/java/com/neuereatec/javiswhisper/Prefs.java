@@ -3,6 +3,7 @@ import android.content.Context; import android.content.SharedPreferences;
 import androidx.security.crypto.EncryptedSharedPreferences; import androidx.security.crypto.MasterKey;
 /** All settings incl. the per-device server token live in EncryptedSharedPreferences. No API keys are ever in the APK. */
 public class Prefs {
+  public static final String DEFAULT_SERVER = "https://whisper.neuereatec.org";
   private static SharedPreferences sp;
   public static synchronized SharedPreferences get(Context c) {
     if (sp == null) try {
@@ -13,6 +14,6 @@ public class Prefs {
   }
   public static String s(Context c, String k, String d) { return get(c).getString(k, d); }
   public static void put(Context c, String k, String v) { get(c).edit().putString(k, v).apply(); }
-  public static String server(Context c) { String u = s(c, "server", "").trim(); while (u.endsWith("/")) u = u.substring(0, u.length() - 1); return u; }
+  public static String server(Context c) { String u = s(c, "server", DEFAULT_SERVER).trim(); while (u.endsWith("/")) u = u.substring(0, u.length() - 1); return u; }
   public static String token(Context c) { return s(c, "token", ""); }
 }

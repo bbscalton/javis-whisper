@@ -119,6 +119,7 @@ http.createServer(async (req, res) => {
   try {
     if (p === '/health') return send(res, 200, { ok: true, xai: !!XAI, google: !!GKEY, model: MODEL });
     if (p.startsWith('/admin')) {
+      if (req.headers['cf-connecting-ip'] || req.headers['cf-ray']) return send(res, 404, { error: 'not found' }); // admin is LAN/localhost only, never via the tunnel
       if (!isAdmin(req, u)) return send(res, 403, { error: 'admin token required' });
       const k = encodeURIComponent(u.searchParams.get('k') || '');
       if (p === '/admin/code' && req.method === 'POST') { const code = String(crypto.randomInt(100000, 999999)); db.prepare('INSERT OR REPLACE INTO codes VALUES(?,?)').run(code, Date.now() + 600e3); return send(res, 200, adminHtml(k, `<p>Enter this code in the app (Settings → Pair):</p><div class=code>${code}</div>`), 'text/html'); }

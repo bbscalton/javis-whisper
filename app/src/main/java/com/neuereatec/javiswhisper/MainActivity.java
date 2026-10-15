@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
   LinearLayout buildSettings() {
     LinearLayout c = card(this);
     c.addView(text(this, "PC01 server", 16, 0xFFFFFFFF));
-    EditText url = edit(this, "Server URL, e.g. https://whisper.neuereatec.com", Prefs.s(this, "server", "")); c.addView(url, lp(this, -1, -2, 6));
+    EditText url = edit(this, "Server URL, default https://whisper.neuereatec.org", Prefs.s(this, "server", Prefs.DEFAULT_SERVER)); c.addView(url, lp(this, -1, -2, 6));
     EditText code = edit(this, "6-digit pairing code from PC01 admin page", ""); code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER); c.addView(code, lp(this, -1, -2, 6));
     Button pair = button(this, "Pair this phone", BLUE); c.addView(pair, lp(this, -1, -2, 6));
     pairT = text(this, pairedText(), 13, MUTED); c.addView(pairT, lp(this, -1, -2, 4));
