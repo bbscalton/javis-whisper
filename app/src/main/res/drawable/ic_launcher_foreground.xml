@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+  <!-- headband -->
+  <path android:pathData="M30,62 A24,24 0 0 1 78,62" android:strokeColor="#FFFFFF" android:strokeWidth="6" android:strokeLineCap="round" android:fillColor="#00000000"/>
+  <!-- ear cups -->
+  <path android:fillColor="#FFFFFF" android:pathData="M26,58 h8 a3,3 0 0 1 3,3 v15 a3,3 0 0 1 -3,3 h-8 a3,3 0 0 1 -3,-3 v-15 a3,3 0 0 1 3,-3 z"/>
+  <path android:fillColor="#FFFFFF" android:pathData="M74,58 h8 a3,3 0 0 1 3,3 v15 a3,3 0 0 1 -3,3 h-8 a3,3 0 0 1 -3,-3 v-15 a3,3 0 0 1 3,-3 z"/>
+  <!-- speech bubbles: blue (me) and teal (them) -->
+  <path android:fillColor="#2F7BFF" android:pathData="M42,50 h16 a4,4 0 0 1 4,4 v8 a4,4 0 0 1 -4,4 h-9 l-5,5 v-5 h-2 a4,4 0 0 1 -4,-4 v-8 a4,4 0 0 1 4,-4 z"/>
+  <path android:fillColor="#12B5A6" android:pathData="M54,60 h12 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-1 v4 l-4,-4 h-7 a4,4 0 0 1 -4,-4 v-6 a4,4 0 0 1 4,-4 z"/>
+  <path android:fillColor="#FFFFFF" android:pathData="M45,56 h10 v2 h-10 z M45,60 h7 v2 h-7 z"/>
+</vector>

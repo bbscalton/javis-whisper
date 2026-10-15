@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Javis Whisper · Neuereatec</title>
+<style>
+:root{--bg:#0b1e3a;--card:#132f57;--blue:#1e88e5;--green:#2e7d32;--muted:#9fb3cf}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#fff;line-height:1.55}
+header{padding:48px 20px 28px;text-align:center;background:radial-gradient(circle at 50% 0,#1e4a85 0,var(--bg) 70%)}
+h1{font-size:40px;margin:0}header p{color:var(--muted);font-size:18px;margin:8px auto 22px;max-width:560px}
+.btn{display:inline-block;background:var(--green);color:#fff;text-decoration:none;font-size:22px;font-weight:600;padding:18px 34px;border-radius:14px;box-shadow:0 6px 20px #0006}
+.small{font-size:14px;color:var(--muted)}main{max-width:820px;margin:auto;padding:0 18px 60px}
+section{background:var(--card);border-radius:16px;padding:20px 22px;margin:18px 0}h2{margin-top:0;font-size:22px}
+ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;border-radius:6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.mode{background:#0e2546;border-radius:12px;padding:14px}
+.mode b{color:#7cc4ff}footer{text-align:center;color:var(--muted);font-size:13px;padding:20px}
+</style></head><body>
+<header><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
+<p>Your AI companion in your earbud. It listens to the conversation and quietly whispers corrections, facts, translations and answers – only you hear it.</p>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/latest/download/JavisWhisper.apk">⬇ Download for Android</a>
+<p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases">all versions</a></p></header>
+<main>
+<section><h2>1 · Install</h2><ol>
+<li>Tap <b>Download for Android</b> on the phone, open the file, allow <b>Install unknown apps</b> for your browser when asked.</li>
+<li>Open <b>Javis Whisper</b>. When you press START the first time, allow <b>Microphone</b>, <b>Nearby devices</b> (Bluetooth) and <b>Notifications</b>.</li>
+<li>Samsung: Settings → Apps → Javis Whisper → Battery → <b>Unrestricted</b>, so it keeps listening with the screen off.</li></ol></section>
+<section><h2>2 · Pair with your PC01 server (once per phone)</h2><ol>
+<li>On PC01 open the admin page (link is in <code>C:\javis-whisper\README-admin.txt</code>) and click <b>New pairing code</b>.</li>
+<li>In the app tap <b>Settings</b>, enter the <b>Server URL</b> and the 6‑digit code, tap <b>Pair this phone</b>, then <b>Test connection</b> → “Connected ✔”.</li>
+<li>New phone? Pair it the same way – it sees all your history. Lost phone? Click <b>Revoke</b> next to it on the admin page.</li></ol></section>
+<section><h2>3 · Connect the earbuds</h2><ol>
+<li>Pair the earbuds in Android Bluetooth settings as normal and make sure <b>Calls</b> is enabled for them.</li>
+<li>Wear the earbud(s). The app uses the earbud microphone in “call” mode (SCO) – the status line shows <b>Earbuds (SCO) · mic earbud</b>.</li>
+<li>If the earbuds drop out, Javis reconnects automatically when they come back.</li></ol></section>
+<section><h2>4 · Pre-brief & go</h2><ol>
+<li>Pick a mode, then type a short <b>pre-brief</b>: who you are meeting and the topic (e.g. “GBTI loan officer, crane truck financing”).</li>
+<li>Press <b>START listening</b>. Put the phone face‑up on the table or in a shirt pocket – the phone mic hears the other person (“Them”), your earbud hears you (“Me”).</li>
+<li>Talk normally. Whispers come at low volume right after the other person finishes a sentence. Javis keeps listening while it whispers.</li>
+<li>Press <b>STOP</b> (or Stop in the notification). The session summary is saved on PC01 and makes the next session smarter.</li></ol></section>
+<section><h2>Modes</h2><div class="grid">
+<div class="mode"><b>Coach</b><br>Flags things that are wrong, gives the right fact, adds background or a smart point you could make. Stays silent if there is nothing useful.</div>
+<div class="mode"><b>Translate</b><br>Detects their language (set up to 3 in Settings, e.g. es‑ES, pt‑BR, fr‑FR), whispers the English meaning and a short reply you can say in their language.</div>
+<div class="mode"><b>Street</b><br>Auto-run mode for walking around: when someone asks you a question, you get a quick, friendly answer to repeat.</div></div></section>
+<section><h2>Settings</h2><ul>
+<li><b>Whisper volume</b> – default is quiet (35%). Also use the phone’s volume buttons during a session.</li>
+<li><b>Mic sensitivity</b> Low / Normal / High – raise it if quiet speakers are missed, lower it in noisy places. Watch the two level meters.</li>
+<li><b>Use phone mic for the other person</b> – on = Me/Them labels (recommended). Off = earbud only.</li>
+<li><b>Speak whispers</b> – off = silent mode, read whispers on screen.</li></ul></section>
+<section><h2>Privacy</h2><ul>
+<li><b>No audio is ever saved</b> – not on the phone, not on PC01. Sound is held in memory for one sentence, transcribed, and thrown away.</li>
+<li>Only text (transcript + whispers, timestamped) is stored, on <b>your own PC01</b> server, with automatic backups. Review it in <b>Review history</b>, export it as JSON.</li>
+<li>No API keys are inside the app. Each phone has its own revocable token.</li>
+<li>Tell people when you are using an AI assistant where the law or courtesy requires it.</li></ul></section>
+<section><h2>Troubleshooting</h2><ul>
+<li><b>“Not connected”</b> – check the Server URL and that PC01 is on; re-pair if you revoked the phone.</li>
+<li><b>Status shows “Phone (no earbuds)”</b> – reconnect the earbuds in Bluetooth settings and make sure “Calls” audio is on; the app picks them up automatically.</li>
+<li><b>Meters move but nothing is transcribed</b> – raise Mic sensitivity; speak within 1 m of the phone.</li>
+<li><b>Whispers too loud / others hear them</b> – lower Whisper volume; use one earbud.</li>
+<li><b>It stops when the screen is off</b> – set Battery to Unrestricted (step 1.3).</li>
+<li><b>Hears its own whisper</b> – it ignores echoes automatically; if it still repeats, lower the volume.</li>
+<li>Offline? Text is queued on the phone and uploaded when back online (no whispers while offline).</li></ul></section>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>

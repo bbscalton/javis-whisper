@@ -1,0 +1,10 @@
+plugins { id 'com.android.application' }
+android {
+  namespace 'com.neuereatec.javiswhisper'
+  compileSdk 34
+  defaultConfig { applicationId 'com.neuereatec.javiswhisper'; minSdk 28; targetSdk 34; versionCode 1; versionName '0.1.0' }
+  signingConfigs { ci { def f = file(System.getenv('KS_FILE') ?: 'none'); if (f.exists()) { storeFile f; storePassword System.getenv('KS_PASS'); keyAlias 'jw'; keyPassword System.getenv('KS_PASS') } } }
+  buildTypes { release { minifyEnabled false; signingConfig signingConfigs.ci.storeFile ? signingConfigs.ci : signingConfigs.debug } }
+  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies { implementation 'androidx.security:security-crypto:1.1.0-alpha06' }

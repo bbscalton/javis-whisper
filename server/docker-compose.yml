@@ -1,0 +1,10 @@
+services:
+  javis-whisper:
+    build: .
+    container_name: javis-whisper
+    restart: unless-stopped
+    ports: ["127.0.0.1:3110:3110"]
+    volumes:
+      - C:/javis-whisper/data:/data
+      - C:/Users/Administrator/javislink/.env.local:/secrets/xai.env:ro
+      - C:/Users/Administrator/translator-secrets/google_translator_key.txt:/secrets/google_key.txt:ro
