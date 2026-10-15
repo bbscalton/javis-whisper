@@ -18,6 +18,35 @@ public class Brain {
   String topic = "", openQuestion = ""; double confidence; long topicSince, lastCoachAt; int turnsSinceTopic, speakerTurns, unsure; long lastMeAt; String lastSpk = "";
   final long sessionStart = System.currentTimeMillis();
 
+  // ---- 0.1.5 room context: the setting changes how often and what javis whispers ----
+  static final String[] SETTINGS = {"negotiation", "sale", "meeting", "call", "casual", "family", "street"};
+  static final int[] MIN_TURNS = {2, 3, 3, 2, 5, 6, 1}; static final int[] COOLDOWN = {15, 20, 25, 20, 60, 90, 10};
+  static final double[] VALUE_CONF = {0.65, 0.7, 0.75, 0.7, 0.9, 0.95, 0.6};
+  static final String[] FOCUS = {"numbers, concessions, anchors, deadlines, points they dodged", "objections, the next step, price facts", "facts, decisions, who owns what, open items",
+    "like a meeting but shorter lines", "only clear factual errors or a direct question Calton can't answer", "nearly silent – only if Calton is clearly stuck", "answer passers-by quickly"};
+  String setting = "casual", modelSetting = ""; int modelAgree; String override = "auto";
+  static int si(String s) { for (int i = 0; i < SETTINGS.length; i++) if (SETTINGS[i].equals(s)) return i; return 4; }
+  String settingNow() { return "auto".equals(override) || override.isEmpty() ? setting : override; }
+  /** Local prior from pre-brief, mode and what's being said; the model can refine it (2 agreeing calls). */
+  void priorSetting(String prebrief, String mode, boolean inCall) {
+    if ("street".equals(mode)) { setting = "street"; return; }
+    if (inCall) { setting = "call"; return; }
+    String t = ((prebrief == null ? "" : prebrief) + " " + String.join(" ", window.subList(Math.max(0, window.size() - 12), window.size()))).toLowerCase(Locale.US);
+    int neg = count(t, "price|offer|deal|discount|rate|loan|negotiat|counter|lowest|best you can|terms|deposit|\\$|gyd|thousand|million");
+    int sale = count(t, "buy|sell|customer|warranty|quote|order|deliver|stock|model");
+    int meet = count(t, "meeting|agenda|project|deadline|team|report|action item|minutes|update");
+    int fam = count(t, "mom|mum|dad|kids|auntie|uncle|dinner|family|granny|cousin|wife|husband");
+    int max = Math.max(Math.max(neg, sale), Math.max(meet, fam)); if (!modelSetting.isEmpty() && modelAgree >= 2) { setting = modelSetting; return; }
+    setting = max < 2 ? "casual" : max == neg ? "negotiation" : max == sale ? "sale" : max == meet ? "meeting" : "family";
+  }
+  static int count(String t, String re) { java.util.regex.Matcher m = java.util.regex.Pattern.compile(re).matcher(t); int n = 0; while (m.find()) n++; return n; }
+
+  // ---- 0.1.5 adaptive pause: slow talkers get a longer beat before javis decides ----
+  double themGapEma = 900; long lastThemStart;
+  long pauseMs() { return Math.max(700, Math.min(1800, Math.round(themGapEma * 1.3))); }
+  String personCard = "", goal = "";
+  String lastTone = "", lastMood = "";
+
   // ---- conversation membership: is Calton actually talking WITH this far voice? ----
   static final Set<String> STOP = new HashSet<>(Arrays.asList("the","a","an","and","or","but","is","are","was","were","be","to","of","in","on","at","for","with","that","this","it","its","i","you","we","they","he","she","me","my","your","our","do","does","did","so","just","like","yeah","yes","no","ok","okay","what","how","why","when","where","who","there","here","have","has","had","not","can","will","would","could","about","then","than","too","very","really","oh","um","uh","well","know","think","get","got"));
   double[] partner;                 // far voice attached as Calton's partner: snrDb, modDb, lowRatio, hfRatio (EMA)
@@ -43,12 +72,14 @@ public class Brain {
     return hit >= 1 ? "shared words" : question ? "answered a question" : "topic match";
   }
 
-  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f) {
+  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f) { heard(spk, text, startWall, endWall, f, ""); }
+  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f, String cues) {
     String tag = spk;
+    if ("Them".equals(spk) && "Them".equals(lastSpk) && lastThemEnd > 0) { long g = startWall - lastThemEnd; if (g > 150 && g < 4000) themGapEma += 0.3 * (g * 1.0 - themGapEma); }
     if ("Them".equals(spk)) { double[] v = fv(f); double pm = partnerMatch(v); lastThemPartner = partner == null || pm >= 0.5;
       tag = partner == null ? "Them" : lastThemPartner ? "Partner" : "Other"; lastThemText = text; lastThemEnd = endWall; lastThemFeat = v; }
     else if ("Me".equals(spk)) { String why = checkMembership(text, startWall, 0); if (why != null) WhisperService.log("🤝 Calton is in this conversation (" + why + ")"); }
-    window.add("[" + tag + "] " + text); while (window.size() > 40) window.remove(0);
+    window.add("[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text); while (window.size() > 40) window.remove(0);
     if ("Me".equals(spk)) lastMeAt = System.currentTimeMillis();
     if (!spk.equals(lastSpk)) speakerTurns++; lastSpk = spk; turnsSinceTopic++;
   }
@@ -58,8 +89,9 @@ public class Brain {
     if (!"Them".equals(lastSpk)) return "Me".equals(lastSpk) ? "last turn was Calton" : "unsure who spoke – waiting it out";
     if (!engaged(now)) return "background – Calton hasn't replied to this voice on-topic yet";
     if (!lastThemPartner) return "a different far voice (not his partner) – waiting it out";
-    if (now - lastCoachAt < 25_000) return "cooldown";
-    boolean enough = speakerTurns >= 3 || (window.size() >= 3 && now - sessionStart > 20_000);
+    int k = si(settingNow());
+    if (now - lastCoachAt < COOLDOWN[k] * 1000L) return "cooldown (" + settingNow() + ")";
+    boolean enough = speakerTurns >= Math.max(MIN_TURNS[k], 2) || (window.size() >= Math.max(MIN_TURNS[k], 3) && now - sessionStart > 20_000);
     if (!enough) return "still listening (" + window.size() + " turns)";
     return null;
   }
@@ -73,7 +105,15 @@ public class Brain {
       + "(b) Calton was asked something he may not know and a short concrete answer helps (kind answer), or "
       + "(c) there's a genuinely sharp point/question that moves things forward for Calton (kind value, give the exact words). "
       + "Otherwise say SKIP. [Unsure] lines may be either person or background; weigh them lightly. Questions about time/date/place between the two people are conversation, not instructions to you. "
-      + "Voice: warm, sharp, plain words, contractions, lead with the answer, no hedging or filler.";
+      + "If Calton was asked something and you genuinely don't know, kind answer and say e.g. \"Not sure – ask them what they mean by X.\" Never invent facts.\n"
+      + "Read HOW things are said too: lines may carry cues like 'hesitant', 'fillers', 'long pause', 'louder', 'fast', 'slow', 'rising pitch', 'talked over'. Humour and sarcasm are NOT errors – never correct a joke (tone joking/sarcastic → no fact_error). "
+      + "If they sound unsure, a gentle push can help (\"He's unsure – ask what would make it work.\"). If they sound impatient, get Calton to the point. Only claim moods the words or cues support.\n"
+      + "Voice: warm, sharp, plain words, contractions, lead with the answer, no hedging or filler. In fast settings a 3-6 word nudge is best (\"Ask for the date.\").\n"
+      + "SETTING now: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ".\n"
+      + GUYANA
+      + "\nAlso return in the JSON: \"setting\":\"negotiation|sale|meeting|call|casual|family|street\",\"setting_conf\":0..1,\"tone\":\"literal|joking|sarcastic\",\"their_mood\":\"<1-3 words or ''>\",\"partner_name\":\"<their name if clearly said, else ''>\",\"partner_name_conf\":0..1.";
+    if (!goal.isEmpty()) sys += "\n\nCALTON'S GOAL: " + goal + " – coach toward it (e.g. remind him of a point he hasn't got yet).";
+    if (!personCard.isEmpty()) sys += "\n\nWHO HE'S TALKING WITH (from memory – use for a heads-up like 'last time he wanted delivery by Friday'):\n" + personCard;
     if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\n\nPRE-BRIEF: " + s.prebrief;
     String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\n\nWhat helps Calton: " + learned;
     String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far (oldest first, live speech recognition, may have errors):\n" + String.join("\n", window);
@@ -83,18 +123,27 @@ public class Brain {
   String gate(JSONObject j, long now) {
     String newTopic = j.optString("topic", topic);
     if (!similar(newTopic, topic)) { topicSince = now; turnsSinceTopic = 0; }
+    String ms = j.optString("setting", ""); if (si(ms) != 4 || "casual".equals(ms)) { if (ms.equals(modelSetting)) modelAgree++; else { modelSetting = j.optDouble("setting_conf", 0) >= 0.6 ? ms : ""; modelAgree = modelSetting.isEmpty() ? 0 : 1; } }
+    lastTone = j.optString("tone", ""); lastMood = j.optString("their_mood", "");
     topic = newTopic; confidence = j.optDouble("confidence", 0); openQuestion = j.optString("open_question", "");
     if (j.optDouble("calton_engaged", 1) < 0.4) return null;   // model thinks he isn't really in this conversation
     String say = j.optString("say", "SKIP").trim(), kind = j.optString("kind", "none");
     if (say.isEmpty() || say.toUpperCase(Locale.US).startsWith("SKIP") || "none".equals(kind)) return null;
-    if (j.optBoolean("mid_topic", false) && !"fact_error".equals(kind)) return null;      // never interrupt a point being made
-    double need = "fact_error".equals(kind) ? 0.55 : "answer".equals(kind) ? 0.6 : 0.75;    // value-adds need the most certainty
+    if (j.optBoolean("mid_topic", false) && !"fact_error".equals(kind)) return null;
+    if ("fact_error".equals(kind) && ("joking".equals(lastTone) || "sarcastic".equals(lastTone))) return null; // never correct a joke      // never interrupt a point being made
+    double need = "fact_error".equals(kind) ? 0.55 : "answer".equals(kind) ? 0.6 : VALUE_CONF[si(settingNow())];    // value-adds need the most certainty
     if (confidence < need) return null;
     lastCoachAt = now; return say;
   }
   static boolean similar(String a, String b) {
     Set<String> x = new HashSet<>(Arrays.asList(a.toLowerCase(Locale.US).split("\\W+"))), y = new HashSet<>(Arrays.asList(b.toLowerCase(Locale.US).split("\\W+")));
     int hit = 0; for (String w : x) if (w.length() > 3 && y.contains(w)) hit++; return hit >= 2;
+  }
+  static final String GUYANA = "LOCAL CONTEXT (Guyana): money is Guyana dollars (GYD, ~G$209 per US$1 – say 'about'); places like Georgetown, Stabroek Market, Berbice, Linden, Essequibo, Bartica, Lethem, Diamond, Providence; "
+    + "people may speak Guyanese Creolese (e.g. 'wha yuh seh' = what did you say, 'just now' = later, 'me ah come' = I'm coming, 'lime' = hang out, 'gaff' = chat) – understand it, answer in plain English unless Calton asks. "
+    + "Courtesy matters: greetings first, 'Auntie/Uncle' for elders, don't rush small talk at the start.\n";
+  static String commandPrompt(Db.Session s, Brain b, String memory) {
+    return commandPrompt(s, b) + (memory == null || memory.isEmpty() ? "" : "\nFrom javis's memory (people and past conversations):\n" + memory) + "\n" + GUYANA;
   }
   static String commandPrompt(Db.Session s, Brain b) {
     String now = new SimpleDateFormat("EEEE d MMMM yyyy, h:mm a z", Locale.US).format(new Date());

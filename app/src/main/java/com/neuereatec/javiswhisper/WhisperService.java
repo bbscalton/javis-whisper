@@ -37,11 +37,11 @@ public class WhisperService extends Service {
   class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr; long frames; float peak;
     Chan(String l, boolean e) { label = l; earbud = e; } }
   /** One utterance at a time across both mics: the mic that hears speech first streams it; speaker = mic with higher SNR. */
-  class Utt { final Proximity.Acc acc = new Proximity.Acc(); int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n; boolean duringTts; }
+  class Utt { final Proximity.Acc acc = new Proximity.Acc(); int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n, pauses; boolean duringTts; }
 
   AudioManager am; Xai xai; Xai.Tts tts; PowerManager.WakeLock wl; Db db; Db.Session sess;
   Chan me, them; boolean dual; int sens; String mode, prebrief, model;
-  volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); volatile ScheduledFuture<?> pendingCoach;
+  volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); People people; public static volatile String settingShown = "auto"; volatile ScheduledFuture<?> pendingCoach;
   final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
   final LinkedList<JSONObject> ctx = new LinkedList<>();
@@ -79,12 +79,16 @@ public class WhisperService extends Service {
       mode = Prefs.s(this, "mode", "coach"); prebrief = Prefs.s(this, "prebrief", "");
       dual = "1".equals(Prefs.s(this, "dual", "1")); sens = Integer.parseInt(Prefs.s(this, "sens", "1"));
       sess = new Db.Session(); sess.started = System.currentTimeMillis(); sess.mode = mode; sess.prebrief = prebrief; sess.id = db.d().add(sess);
+      people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
+      final String pb = prebrief; proc.execute(() -> { people.fromPrebrief(xai, model, pb); brain.goal = people.goal; brain.personCard = people.card; });
       log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
       startBt();
       int min = AudioTrack.getMinBufferSize(SR, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
       track = new AudioTrack.Builder().setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
         .setAudioFormat(new AudioFormat.Builder().setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
         .setBufferSizeInBytes(Math.max(min * 2, SR)).setTransferMode(AudioTrack.MODE_STREAM).build();
+      // 0.1.5 warmer pacing: Ara a touch slower (time-stretch, same pitch); setting "pace" 0.85-1.1
+      try { track.setPlaybackParams(new PlaybackParams().setSpeed(Float.parseFloat(Prefs.s(this, "pace", "0.94"))).setPitch(1f)); } catch (Throwable t) { log("(pacing not supported on this phone – normal speed)"); }
       track.play();
       me = new Chan(dual ? "Me" : "Speaker", true); them = dual ? new Chan("Them", false) : null;
       for (Chan c : chans()) { c.restart = "initial open"; c.th = new Thread(() -> readLoop(c), "jw-" + c.label); c.th.start(); }
@@ -110,6 +114,7 @@ public class WhisperService extends Service {
       try { if (track != null) { track.stop(); track.release(); } } catch (Throwable ignored) {}
       if (tts != null) tts.close();
       stopBt();
+      if (sess != null && people != null) try { people.endConvo(xai, model, sess, brain.settingNow()); } catch (Throwable t) { log("Recap failed: " + t.getMessage()); }
       if (sess != null) { sess.ended = System.currentTimeMillis(); db.d().update(sess); try { Learn.endSession(this, xai, model, sess); } catch (Throwable t) { log("Summary failed: " + t.getMessage()); } }
       try { if (wl != null && wl.isHeld()) wl.release(); } catch (Throwable ignored) {}
       levelMe = levelThem = 0; status = "Stopped"; route = "-"; log("Session stopped");
@@ -163,6 +168,8 @@ public class WhisperService extends Service {
         if (c.earbud && btIn() != null) { AudioDeviceInfo d = r.getRoutedDevice(); if (d != null && !isBt(d.getType())) c.restart = "earbud mic rerouted to phone"; }
       }
       updateRoute();
+      if (people != null && people.cur != null && brain.lastThemEnd > 0 && System.currentTimeMillis() - brain.lastThemEnd > 180_000) {
+        brain.lastThemEnd = 0; log("(conversation seems over – writing recap)"); proc.execute(() -> { people.endConvo(xai, model, sess, brain.settingNow()); brain.personCard = ""; brain.partner = null; brain.engagedAt = 0; }); }
     } catch (Throwable t) { log("watchdog: " + t); }
   }
   AudioRecord makeRec(Chan c) {
@@ -219,7 +226,7 @@ public class WhisperService extends Service {
         }
       } else { // this mic owns the open utterance: stream its audio to xAI STT live
         u.stt.push(pcm); frames++;
-        if (v) { voiced++; silence = 0; } else if (silence++ == 0) silenceStart = SystemClock.uptimeMillis();
+        if (v) { if (silence >= 18) u.pauses++; voiced++; silence = 0; } else if (silence++ == 0) silenceStart = SystemClock.uptimeMillis();
         // end on 500 ms pause, or after 300 ms if xAI STT already finalised the phrase (saves ~200-400 ms)
         if (silence >= END_SILENCE_FRAMES || (silence >= 15 && u.stt.finalSince(silenceStart)) || frames > 750) {
           u.vadMs = silence * 20;
@@ -247,32 +254,39 @@ public class WhisperService extends Service {
       String spk = Proximity.band(near);
       if ("Me".equals(spk) && near >= 0.85) Proximity.learn(this, pf, 0.3); // passive profile from very confident own turns
       boolean english = isEnglishish(text);
-      log(spk + ": " + text + String.format(Locale.US, "   (near %.2f · %s)", near, pf));
+      String cues = cues(text, u, spk);
+      log(spk + ": " + text + (cues.isEmpty() ? "" : "  [" + cues + "]") + String.format(Locale.US, "   (near %.2f · %s)", near, pf));
       // ---- direct address: wake word AND near voice → fast path. Unsure/far = conversation, keep listening ----
       String cmd = Brain.wake(text);
       if (cmd != null) {
         if ("Me".equals(spk)) {
           Proximity.learn(this, pf, 1); // light passive voice profile from Calton's own commands
           saveTurn("command", spk, english ? "en" : "", text, u.startWall);
-          JSONArray msgs = new JSONArray().put(Learn.msg("system", Brain.commandPrompt(sess, brain))).put(Learn.msg("user", cmd.isEmpty() ? text : cmd));
+          JSONArray msgs = new JSONArray().put(Learn.msg("system", Brain.commandPrompt(sess, brain, people.memoryForCommand(cmd)))).put(Learn.msg("user", cmd.isEmpty() ? text : cmd));
           speakStream(u, tText, msgs, true); return;
         }
         log("(wake word but voice " + ("Unsure".equals(spk) ? "unsure" : "not near") + " – treated as conversation)");
       }
       saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
-      addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text, u.startWall, System.currentTimeMillis() - u.vadMs - (SystemClock.uptimeMillis() - u.endUp), pf);
+      addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text, u.startWall, System.currentTimeMillis() - u.vadMs - (SystemClock.uptimeMillis() - u.endUp), pf, cues);
+      // ---- 0.1.5 people memory: learn names, attach the person, learn their voice once linked ----
+      String nm = People.nameIn(text, spk);
+      if (nm != null && people.attach(nm, "", "heard \"" + nm + "\"")) brain.personCard = people.card;
+      if ("Them".equals(spk) && brain.partner != null && brain.lastThemPartner) { double[] fv = Brain.fv(pf);
+        if (people.cur != null) people.learnVoice(fv); else { Db.Person h = people.voiceHint(fv); if (h != null) log("(voice sounds like " + h.name + " – waiting for the name to confirm)"); } }
       if ("Unsure".equals(spk)) brain.unsure++;
       if ("translate".equals(mode)) { if (!english && !"Me".equals(spk)) whisper(u, tText); return; }
       if ("street".equals(mode)) { if ("Them".equals(spk)) whisper(u, tText); return; }
       // ---- coach: listen first; decide only at a natural pause after the other person finishes ----
       if ("Them".equals(spk)) { ScheduledFuture<?> pc = pendingCoach; if (pc != null) pc.cancel(false);
-        pendingCoach = sched.schedule(() -> proc.execute(this::coachDecide), 900, TimeUnit.MILLISECONDS); }
+        pendingCoach = sched.schedule(() -> proc.execute(this::coachDecide), brain.pauseMs(), TimeUnit.MILLISECONDS); }
     } catch (Throwable e) { status = "Listening"; log("Pipeline error: " + e.getMessage()); }
   }
 
   void coachDecide() {
     try {
       long now = System.currentTimeMillis();
+      brain.override = Prefs.s(this, "setting", "auto"); brain.priorSetting(prebrief, mode, false); settingShown = brain.settingNow() + ("auto".equals(brain.override) ? " (auto)" : "");
       String why = brain.preGate(now, cur != null);
       if (why != null) { log("(listening: " + why + ")"); return; }
       status = "Thinking…";
@@ -281,11 +295,21 @@ public class WhisperService extends Service {
       int a = raw.indexOf('{'), b = raw.lastIndexOf('}'); if (a < 0 || b < a) { log("(coach: unreadable reply)"); return; }
       JSONObject j = new JSONObject(raw.substring(a, b + 1));
       String say = brain.gate(j, now);
-      log(String.format(Locale.US, "🧭 %s · conf %.2f%s · %s", brain.topic, brain.confidence, brain.openQuestion.isEmpty() ? "" : " · open: " + brain.openQuestion, say == null ? "stay quiet" : j.optString("kind")));
+      String pn = j.optString("partner_name", ""); if (!pn.isEmpty() && j.optDouble("partner_name_conf", 0) >= 0.7 && people.cur == null && people.attach(pn, "", "named in conversation")) brain.personCard = people.card;
+      log(String.format(Locale.US, "🧭 [%s%s] %s · conf %.2f%s · %s", brain.settingNow(), brain.lastMood.isEmpty() ? "" : " · they seem " + brain.lastMood, brain.topic, brain.confidence, brain.openQuestion.isEmpty() ? "" : " · open: " + brain.openQuestion, say == null ? "stay quiet" : j.optString("kind")));
       if (say == null) return;
       if (cur != null) { log("(someone started talking – held back)"); brain.lastCoachAt = 0; return; }
       speakText(say);
     } catch (Throwable e) { status = "Listening"; log("Coach error: " + e.getMessage()); }
+  }
+  /** 0.1.5 hesitation cues (from words + pauses inside the turn). Honest: only what we can measure. */
+  static final java.util.regex.Pattern FILLER = java.util.regex.Pattern.compile("(?i)\\b(um+|uh+|er+|erm|hmm+|i guess|i mean|sort of|kind of|maybe|i don'?t know|not sure)\\b");
+  static final java.util.regex.Pattern RESTART = java.util.regex.Pattern.compile("(?i)\\b(\\w+)[-,]?\\s+\\1\\b");
+  String cues(String text, Utt u, String spk) {
+    List<String> r = new ArrayList<>(); java.util.regex.Matcher m = FILLER.matcher(text); int f = 0; while (m.find()) f++;
+    int words = text.trim().split("\\s+").length;
+    if (f >= 2 || (f >= 1 && words < 8)) r.add("hesitant"); if (u.pauses >= 2) r.add("long pauses"); if (RESTART.matcher(text).find()) r.add("restarts");
+    return String.join(", ", r);
   }
   void speakText(String say) {
     if (!"0".equals(Prefs.s(this, "voice", "1"))) { final float vol = Float.parseFloat(Prefs.s(this, "vol", "0.35"));
@@ -339,6 +363,7 @@ public class WhisperService extends Service {
     int hit = 0; for (String x : w) if (en.contains(x)) hit++; return hit * 4 >= w.length || t.matches(".*[a-zA-Z].*") && w.length <= 2 && hit > 0;
   }
   void play(byte[] pcm, float vol) {
+    Utt c = cur; if (c != null && c.owner == me && me != null) vol *= 0.6f; // duck under Calton's own voice
     try { track.setVolume(vol); track.write(pcm, 0, pcm.length);
       long now = SystemClock.uptimeMillis(); playingUntil = Math.max(playingUntil, now) + pcm.length / 32 + 300; } catch (Throwable ignored) {}
   }

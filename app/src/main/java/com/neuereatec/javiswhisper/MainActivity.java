@@ -7,7 +7,8 @@ import static com.neuereatec.javiswhisper.Ui.*;
 public class MainActivity extends Activity {
   final Handler h = new Handler(Looper.getMainLooper());
   TextView statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
-  LinearLayout settings;
+  LinearLayout settings; Button settingChip;
+  void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
   @Override protected void onCreate(Bundle b) {
     super.onCreate(b);
@@ -30,6 +31,10 @@ public class MainActivity extends Activity {
       Button bt = button(this, m[1], CARD); modeBtns.put(m[0], bt); LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, -2, 1); l.setMargins(px(this, 3), 0, px(this, 3), 0); modes.addView(bt, l);
       bt.setOnClickListener(v -> { Prefs.put(this, "mode", m[0]); paintModes(); WhisperService.log("Mode → " + m[1]); });
     }
+    // 0.1.5 setting chip: tap to cycle Auto → negotiation → … (override); shows what javis thinks when on Auto
+    Button chip = button(this, "", CARD); chip.setTextSize(14); root.addView(chip, lp(this, -1, -2, 8)); settingChip = chip; paintChip();
+    chip.setOnClickListener(v -> { String[] o = {"auto", "negotiation", "sale", "meeting", "call", "casual", "family", "street"}; String cur = Prefs.s(this, "setting", "auto"); int i = 0;
+      for (int k = 0; k < o.length; k++) if (o[k].equals(cur)) i = k; Prefs.put(this, "setting", o[(i + 1) % o.length]); paintChip(); WhisperService.log("Setting → " + o[(i + 1) % o.length]); });
     EditText brief = edit(this, "Pre-brief: who are you talking to, what about? (e.g. 'Bank manager, loan for crane truck')", Prefs.s(this, "prebrief", ""));
     brief.setMinLines(2); root.addView(brief, lp(this, -1, -2, 10));
     brief.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "prebrief", brief.getText().toString()); });
@@ -41,6 +46,8 @@ public class MainActivity extends Activity {
     Button rev = button(this, "Review history", BLUE), set = button(this, "Settings", CARD);
     row.addView(rev, new LinearLayout.LayoutParams(0, -2, 1)); LinearLayout.LayoutParams l2 = new LinearLayout.LayoutParams(0, -2, 1); l2.leftMargin = px(this, 8); row.addView(set, l2);
     rev.setOnClickListener(v -> startActivity(new Intent(this, ReviewActivity.class)));
+    Button ppl = button(this, "People javis remembers", CARD); root.addView(ppl, lp(this, -1, -2, 8));
+    ppl.setOnClickListener(v -> startActivity(new Intent(this, PeopleActivity.class)));
     settings = buildSettings(); settings.setVisibility(View.GONE); root.addView(settings, lp(this, -1, -2, 10));
     set.setOnClickListener(v -> settings.setVisibility(settings.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
 
@@ -146,6 +153,7 @@ public class MainActivity extends Activity {
     routeT.setText(WhisperService.route + (WhisperService.lastTiming.isEmpty() ? "" : "\n" + WhisperService.lastTiming));
     meBar.setProgress(meter(WhisperService.levelMe)); themBar.setProgress(meter(WhisperService.levelThem));
     startB.setText(r ? "STOP" : "START listening"); startB.setBackground(round(r ? RED : GREEN, px(this, 12)));
+    paintChip();
     List<String> lg = WhisperService.logSnapshot(); logT.setText(String.join("\n", lg));
     lastT.setText(r ? WhisperService.status + " · " + WhisperService.route + (lg.isEmpty() ? "" : "\n" + lg.get(0)) : (Prefs.s(this, "xai_key", "").isEmpty() ? "Setup: Settings → pair with PC01 (6-digit code)" : "Ready – press START"));
     h.postDelayed(this::tick, 150);

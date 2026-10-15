@@ -47,6 +47,9 @@ public class Learn {
     for (Db.Session s : Db.get(c).d().sessions()) { JSONArray ts = new JSONArray();
       for (Db.Turn t : Db.get(c).d().turns(s.id)) ts.put(new JSONObject().put("ts", iso(t.ts)).put("kind", t.kind).put("speaker", t.speaker).put("text", t.text));
       ss.put(new JSONObject().put("started", iso(s.started)).put("mode", s.mode).put("prebrief", s.prebrief).put("summary", s.summary).put("turns", ts)); }
-    return new JSONObject().put("exported", iso(System.currentTimeMillis())).put("learned", Prefs.s(c, "learned", "")).put("sessions", ss);
+    JSONArray pp = new JSONArray(); for (Db.Person p : Db.get(c).d().people()) { JSONArray cs = new JSONArray();
+      for (Db.Convo cv : Db.get(c).d().convos(p.id, 1000)) cs.put(new JSONObject().put("started", iso(cv.started)).put("setting", cv.setting).put("topic", cv.topic).put("keyFacts", cv.keyFacts).put("promises", cv.promises).put("openItems", cv.openItems).put("summary", cv.summary));
+      pp.put(new JSONObject().put("name", p.name).put("relationship", p.relationship).put("aliases", p.aliases).put("notes", p.notes).put("conversations", cs)); }
+    return new JSONObject().put("exported", iso(System.currentTimeMillis())).put("learned", Prefs.s(c, "learned", "")).put("sessions", ss).put("people", pp);
   }
 }
