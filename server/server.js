@@ -110,10 +110,29 @@ function backup() {
 setTimeout(backup, 10e3); setInterval(backup, 6 * 3600e3);
 
 const adminHtml = (k, msg = '') => `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Javis Whisper admin</title><style>body{font-family:system-ui;background:#0b1e3a;color:#fff;max-width:720px;margin:auto;padding:20px}button{padding:10px 18px;border-radius:10px;border:0;background:#1e88e5;color:#fff;font-size:16px}td{padding:6px;border-bottom:1px solid #234}.code{font-size:48px;letter-spacing:8px;background:#132f57;padding:16px;border-radius:12px;text-align:center}</style>
-<h1>Javis Whisper · devices</h1>${msg}
+<p><b>Devices</b> · <a style=color:#9cf href="/admin/logs?k=${k}">Logs</a></p><h1>Javis Whisper · devices</h1>${msg}
 <form method=post action="/admin/code?k=${k}"><button>New pairing code (10 min)</button></form>
 <table><tr><th>Device</th><th>Paired</th><th>Last seen</th><th></th></tr>${db.prepare('SELECT * FROM devices ORDER BY id DESC').all().map(d => `<tr><td>${esc(d.name)}</td><td>${d.created.slice(0, 16)}</td><td>${(d.last_seen || '').slice(0, 16)}</td><td>${d.revoked ? 'revoked' : `<form method=post action="/admin/revoke?k=${k}&id=${d.id}"><button style="background:#c62828">Revoke</button></form>`}</td></tr>`).join('')}</table>
 <p>Sessions: ${db.prepare('SELECT count(*) n FROM sessions').get().n} · Turns: ${db.prepare('SELECT count(*) n FROM turns').get().n} · <a style=color:#9cf href="/admin/export?k=${k}">Export JSON</a></p>`;
+// ---- 0.1.8 admin "Logs" tab: uploads from "Send to PC" (text only) ----
+const UPL = path.join(DATA, 'uploads');
+const okName = f => /^[A-Za-z0-9_.-]+\.json$/.test(f || '') && fs.existsSync(path.join(UPL, f));
+const page = (k, title, inner) => `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font-family:system-ui;background:#0b1e3a;color:#fff;max-width:980px;margin:auto;padding:20px}a{color:#9cf}button{padding:6px 12px;border-radius:8px;border:0;background:#c62828;color:#fff}td,th{padding:5px 6px;border-bottom:1px solid #234;vertical-align:top;text-align:left;font-size:14px}.m{color:#9fb3cf}.w{color:#7cf29a;font-weight:600}.q{color:#9fb3cf;font-style:italic}.t{color:#ffcc80}.log{font:12px ui-monospace,monospace;white-space:pre-wrap;background:#081730;padding:10px;border-radius:8px}h2{margin-top:28px}</style>
+<p><a href="/admin?k=${k}">Devices</a> · <b>Logs</b></p>${inner}`;
+function logsList(k) {
+  const files = fs.existsSync(UPL) ? fs.readdirSync(UPL).filter(f => f.endsWith('.json')).map(f => { const st = fs.statSync(path.join(UPL, f)); let j = {}; try { j = JSON.parse(fs.readFileSync(path.join(UPL, f), 'utf8')); } catch {} return { f, st, j }; }).sort((a, b) => b.st.mtimeMs - a.st.mtimeMs) : [];
+  const gy = t => new Date(new Date(t).getTime() - 4 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
+  const byDev = {}; files.forEach(x => { const d = (x.j.device && (x.j.device.name || 'device ' + x.j.device.id)) || 'unknown'; (byDev[d] = byDev[d] || []).push(x); });
+  return page(k, 'Javis Whisper logs', `<h1>Logs from phones</h1><p class=m>Sent with “Send to PC” in the app. Text only. Times in Guyana time.</p>` + (files.length ? '' : '<p>No uploads yet.</p>') + Object.entries(byDev).map(([d, xs]) => `<h2>${esc(d)}</h2><table><tr><th>Received (GY)</th><th>Range</th><th>Version</th><th>Sessions</th><th>Log lines</th><th></th></tr>` + xs.map(x => `<tr><td><a href="/admin/log?k=${k}&f=${encodeURIComponent(x.f)}">${gy(x.st.mtime)}</a></td><td>${esc(x.j.range)}</td><td>${esc(x.j.version)}</td><td>${(x.j.sessions || []).length}</td><td>${(x.j.log || []).length}</td><td><a href="/admin/log/raw?k=${k}&f=${encodeURIComponent(x.f)}">JSON</a></td><td><form method=post action="/admin/log/delete?k=${k}&f=${encodeURIComponent(x.f)}" onsubmit="return confirm('Delete this upload?')"><button>Delete</button></form></td></tr>`).join('') + '</table>').join(''));
+}
+function logView(k, f) {
+  const j = JSON.parse(fs.readFileSync(path.join(UPL, f), 'utf8'));
+  const gy = t => t ? new Date(new Date(t).getTime() - 4 * 3600e3).toISOString().slice(11, 19) : '';
+  const sess = (j.sessions || []).map(s => `<h2>Session ${esc(String(s.started).slice(0, 16).replace('T', ' '))} · ${esc(s.mode)}</h2>${s.prebrief ? `<p class=m>Pre-brief: ${esc(s.prebrief)}</p>` : ''}${s.summary ? `<p>${esc(s.summary)}</p>` : ''}<table><tr><th>Time</th><th>Who</th><th>Said</th></tr>` + (s.turns || []).map(t => `<tr><td class=m>${gy(t.ts)}</td><td>${t.kind === 'whisper' ? '<span class=w>🗣 javis</span>' : esc(t.speaker) + (t.kind === 'command' ? ' <span class=t>(command)</span>' : '')}</td><td class="${t.kind === 'whisper' ? 'w' : ''}">${esc(t.text)}</td></tr>`).join('') + '</table>').join('');
+  const lines = (j.log || []).map(l => { const e = esc(l); return /🗣/.test(l) ? `<span class=w>${e}</span>` : /\(listening:|stayed quiet|stay quiet|dropped a question|\(wake word/.test(l) ? `<span class=q>${e}</span>` : /⏱|🧭/.test(l) ? `<span class=t>${e}</span>` : e; }).join('\n');
+  return page(k, f, `<h1>${esc(j.device && j.device.name)} · ${esc(j.range)} · v${esc(j.version)}</h1><p class=m>${esc(j.phone)} · received ${esc(j.received)} · <a href="/admin/log/raw?k=${k}&f=${encodeURIComponent(f)}">download JSON</a></p>
+<p class=m>Legend: <span class=w>whispers</span> · <span class=q>why javis stayed quiet</span> · <span class=t>topic/decision and timing (⏱)</span> · voice score = “near 0.xx” (≥0.65 Me, ≤0.35 Them, between = unsure)</p>${sess}<h2>App log (oldest first)</h2><div class=log>${lines || '(no log lines)'}</div>`);
+}
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 http.createServer(async (req, res) => {
@@ -131,6 +150,12 @@ http.createServer(async (req, res) => {
       if (p === '/admin/code' && req.method === 'POST') { const code = String(crypto.randomInt(100000, 999999)); db.prepare('INSERT OR REPLACE INTO codes VALUES(?,?)').run(code, Date.now() + 600e3); return send(res, 200, adminHtml(k, `<p>Enter this code in the app (Settings → Pair):</p><div class=code>${code}</div>`), 'text/html'); }
       if (p === '/admin/revoke' && req.method === 'POST') { db.prepare('UPDATE devices SET revoked=1 WHERE id=?').run(+u.searchParams.get('id')); return send(res, 200, adminHtml(k, '<p>Device revoked.</p>'), 'text/html'); }
       if (p === '/admin/export') return send(res, 200, exportAll());
+      if (p === '/admin/logs') return send(res, 200, logsList(k), 'text/html; charset=utf-8');
+      const lf = u.searchParams.get('f');
+      if (p === '/admin/log' && okName(lf)) return send(res, 200, logView(k, lf), 'text/html; charset=utf-8');
+      if (p === '/admin/log/raw' && okName(lf)) { res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="${lf}"`, 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(UPL, lf))); }
+      if (p === '/admin/log/delete' && req.method === 'POST' && okName(lf)) { fs.unlinkSync(path.join(UPL, lf)); log('upload deleted', lf); res.writeHead(303, { Location: `/admin/logs?k=${k}` }); return res.end(); }
+      if (p.startsWith('/admin/log')) return send(res, 404, { error: 'no such upload' });
       return send(res, 200, adminHtml(k), 'text/html');
     }
     if (p === '/api/pair' && req.method === 'POST') {
@@ -147,7 +172,7 @@ http.createServer(async (req, res) => {
     if (p === '/api/upload' && req.method === 'POST') { // 0.1.8 "Send to PC": text-only session export from the phone
       const b = await body(req); const strip = o => { if (Array.isArray(o)) return o.map(strip); if (o && typeof o === 'object') { const r = {}; for (const [k, v] of Object.entries(o)) if (!/audio|pcm|wav|mp3/i.test(k)) r[k] = strip(v); return r; } return o; };
       const dir = path.join(DATA, 'uploads'); fs.mkdirSync(dir, { recursive: true });
-      const ts = now().replace(/[:.]/g, '-').slice(0, 19), name = `device${dev.id}-${String(dev.name || 'phone').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 30)}-${ts}.json`;
+      const ts = new Date(Date.now() - 4 * 3600e3).toISOString().replace(/[:.]/g, '-').slice(0, 19) + 'GY', name = `device${dev.id}-${String(dev.name || 'phone').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 30)}-${ts}.json`;
       fs.writeFileSync(path.join(dir, name), JSON.stringify({ received: now(), device: { id: dev.id, name: dev.name }, ...strip(b) }, null, 1));
       log('upload saved', name, fs.statSync(path.join(dir, name)).size, 'bytes'); return send(res, 200, { ok: true, file: 'C:\\javis-whisper\\data\\uploads\\' + name });
     }
