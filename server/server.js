@@ -144,6 +144,13 @@ http.createServer(async (req, res) => {
     if (!p.startsWith('/api/')) return send(res, 404, { error: 'not found' });
     const dev = auth(req); if (!dev) return send(res, 401, { error: 'device not paired or revoked' });
     if (p === '/api/provision') { log('provisioned key to device', dev.id); return send(res, 200, { xaiKey: XAI }); }
+    if (p === '/api/upload' && req.method === 'POST') { // 0.1.8 "Send to PC": text-only session export from the phone
+      const b = await body(req); const strip = o => { if (Array.isArray(o)) return o.map(strip); if (o && typeof o === 'object') { const r = {}; for (const [k, v] of Object.entries(o)) if (!/audio|pcm|wav|mp3/i.test(k)) r[k] = strip(v); return r; } return o; };
+      const dir = path.join(DATA, 'uploads'); fs.mkdirSync(dir, { recursive: true });
+      const ts = now().replace(/[:.]/g, '-').slice(0, 19), name = `device${dev.id}-${String(dev.name || 'phone').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 30)}-${ts}.json`;
+      fs.writeFileSync(path.join(dir, name), JSON.stringify({ received: now(), device: { id: dev.id, name: dev.name }, ...strip(b) }, null, 1));
+      log('upload saved', name, fs.statSync(path.join(dir, name)).size, 'bytes'); return send(res, 200, { ok: true, file: 'C:\\javis-whisper\\data\\uploads\\' + name });
+    }
     if (p === '/api/ping') return send(res, 200, { ok: true, device: dev.name, model: MODEL });
     if (p === '/api/stt' && req.method === 'POST') { const b = await body(req); const r = await stt(b); b.audio = null; return send(res, 200, r); }
     if (p === '/api/session' && req.method === 'POST') {

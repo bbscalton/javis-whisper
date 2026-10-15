@@ -10,6 +10,7 @@ import org.json.JSONObject;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
+import java.io.File;
 
 /**
  * Wearable pipeline (v0.1.2, phone talks to xAI directly):
@@ -31,7 +32,14 @@ public class WhisperService extends Service {
     String line = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + s;
     synchronized (LOG) { LOG.addFirst(line); while (LOG.size() > 250) LOG.removeLast(); }
     android.util.Log.i("JavisWhisper", s);
+    // 0.1.8: keep a text-only log on the phone (skip reasons, voice scores, timings) for "Send to PC"; ~3 MB, one rotation
+    File f = logFile; if (f != null) synchronized (LOG) { try {
+      if (f.length() > 3_000_000) { File o = new File(f.getPath() + ".1"); o.delete(); f.renameTo(o); }
+      try (java.io.FileWriter w = new java.io.FileWriter(f, true)) { w.write(System.currentTimeMillis() + "\t" + s.replace('\n', ' ') + "\n"); }
+    } catch (Throwable ignored) {} }
   }
+  static volatile File logFile;
+  static void initLog(Context c) { if (logFile == null) logFile = new File(c.getFilesDir(), "jw-log.txt"); }
   public static List<String> logSnapshot() { synchronized (LOG) { return new ArrayList<>(LOG); } }
 
   class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr; long frames; float peak;
@@ -49,7 +57,7 @@ public class WhisperService extends Service {
   AudioTrack track; AudioDeviceCallback devCb;
 
   @Override public IBinder onBind(Intent i) { return null; }
-  @Override public void onCreate() { super.onCreate(); am = getSystemService(AudioManager.class); db = Db.get(this); }
+  @Override public void onCreate() { super.onCreate(); am = getSystemService(AudioManager.class); db = Db.get(this); initLog(this); }
 
   @Override public int onStartCommand(Intent i, int flags, int id) {
     String a = i == null ? ACTION_START : i.getAction();

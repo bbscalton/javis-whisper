@@ -11,7 +11,7 @@ public class MainActivity extends Activity {
   void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
   @Override protected void onCreate(Bundle b) {
-    super.onCreate(b);
+    super.onCreate(b); WhisperService.initLog(this);
     LinearLayout outer = new LinearLayout(this); outer.setOrientation(LinearLayout.VERTICAL); outer.setBackgroundColor(BG);
     ScrollView sv = new ScrollView(this); sv.setBackgroundColor(BG); outer.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
     LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); int p = px(this, 16); root.setPadding(p, px(this, 28), p, p); sv.addView(root, new ScrollView.LayoutParams(-1, -2));
@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     rev.setOnClickListener(v -> startActivity(new Intent(this, ReviewActivity.class)));
     Button ppl = button(this, "People javis remembers", CARD); root.addView(ppl, lp(this, -1, -2, 8));
     ppl.setOnClickListener(v -> startActivity(new Intent(this, PeopleActivity.class)));
+    Button pc = button(this, "⇪ Send to PC (text only)", CARD); root.addView(pc, lp(this, -1, -2, 8)); pc.setOnClickListener(v -> SendToPc.ask(this));
     settings = buildSettings(); settings.setVisibility(View.GONE); root.addView(settings, lp(this, -1, -2, 10));
     set.setOnClickListener(v -> settings.setVisibility(settings.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
 
