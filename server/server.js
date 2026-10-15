@@ -2,7 +2,7 @@
 'use strict';
 const http = require('node:http'), crypto = require('node:crypto'), fs = require('node:fs'), path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const DATA = process.env.DATA_DIR || '/data', PORT = +process.env.PORT || 3110;
+const DATA = process.env.DATA_DIR || '/data', PORT = +process.env.PORT || 3120;
 const MODEL = process.env.XAI_MODEL || 'grok-4-fast-non-reasoning';
 fs.mkdirSync(path.join(DATA, 'backups'), { recursive: true }); fs.mkdirSync(path.join(DATA, 'exports'), { recursive: true });
 function readSecret(file, name) { // file may be raw key or KEY=VALUE env file

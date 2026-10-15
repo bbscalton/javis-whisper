@@ -3,7 +3,8 @@ services:
     build: .
     container_name: javis-whisper
     restart: unless-stopped
-    ports: ["127.0.0.1:3110:3110"]
+    environment: ["PORT=3120"]
+    ports: ["127.0.0.1:3120:3120"]
     volumes:
       - C:/javis-whisper/data:/data
       - C:/Users/Administrator/javislink/.env.local:/secrets/xai.env:ro
