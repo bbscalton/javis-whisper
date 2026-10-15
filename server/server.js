@@ -139,10 +139,11 @@ http.createServer(async (req, res) => {
       db.prepare('DELETE FROM codes WHERE code=?').run(c.code);
       const token = crypto.randomBytes(32).toString('base64url');
       const r = db.prepare('INSERT INTO devices(name,token_hash,created) VALUES(?,?,?)').run(String(b.name || 'phone').slice(0, 60), sha(token), now());
-      log('paired device', r.lastInsertRowid); return send(res, 200, { token, deviceId: Number(r.lastInsertRowid) });
+      log('paired device', r.lastInsertRowid); return send(res, 200, { token, deviceId: Number(r.lastInsertRowid), xaiKey: XAI }); // pairing = one-time provisioning of the xAI key to this phone
     }
     if (!p.startsWith('/api/')) return send(res, 404, { error: 'not found' });
     const dev = auth(req); if (!dev) return send(res, 401, { error: 'device not paired or revoked' });
+    if (p === '/api/provision') { log('provisioned key to device', dev.id); return send(res, 200, { xaiKey: XAI }); }
     if (p === '/api/ping') return send(res, 200, { ok: true, device: dev.name, model: MODEL });
     if (p === '/api/stt' && req.method === 'POST') { const b = await body(req); const r = await stt(b); b.audio = null; return send(res, 200, r); }
     if (p === '/api/session' && req.method === 'POST') {

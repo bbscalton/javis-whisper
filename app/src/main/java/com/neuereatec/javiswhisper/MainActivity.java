@@ -6,13 +6,16 @@ import static com.neuereatec.javiswhisper.Ui.*;
 
 public class MainActivity extends Activity {
   final Handler h = new Handler(Looper.getMainLooper());
-  TextView statusT, routeT, logT, pairT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
+  TextView statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
   LinearLayout settings;
 
   @Override protected void onCreate(Bundle b) {
     super.onCreate(b);
-    ScrollView sv = new ScrollView(this); sv.setBackgroundColor(BG); sv.setFillViewport(true);
-    LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); int p = px(this, 16); root.setPadding(p, px(this, 28), p, p); sv.addView(root);
+    LinearLayout outer = new LinearLayout(this); outer.setOrientation(LinearLayout.VERTICAL); outer.setBackgroundColor(BG);
+    ScrollView sv = new ScrollView(this); sv.setBackgroundColor(BG); outer.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
+    LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); int p = px(this, 16); root.setPadding(p, px(this, 28), p, p); sv.addView(root, new ScrollView.LayoutParams(-1, -2));
+    LinearLayout bar = new LinearLayout(this); bar.setOrientation(LinearLayout.VERTICAL); bar.setBackgroundColor(0xFF081730); bar.setPadding(p, px(this, 8), p, px(this, 12)); outer.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+    lastT = text(this, "", 13, 0xFFE3ECF7); lastT.setMaxLines(3); bar.addView(lastT);
     root.addView(text(this, "Javis Whisper", 28, 0xFFFFFFFF));
     root.addView(text(this, "Your earbud AI companion · by Neuereatec", 14, MUTED));
 
@@ -31,7 +34,7 @@ public class MainActivity extends Activity {
     brief.setMinLines(2); root.addView(brief, lp(this, -1, -2, 10));
     brief.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "prebrief", brief.getText().toString()); });
 
-    startB = button(this, "START listening", GREEN); root.addView(startB, lp(this, -1, px(this, 64), 12));
+    startB = button(this, "START listening", GREEN); bar.addView(startB, lp(this, -1, px(this, 60), 6));
     startB.setOnClickListener(v -> { Prefs.put(this, "prebrief", brief.getText().toString()); if (WhisperService.running) stopSvc(); else startSvc(); });
 
     LinearLayout row = new LinearLayout(this); root.addView(row, lp(this, -1, -2, 10));
@@ -44,9 +47,9 @@ public class MainActivity extends Activity {
     LinearLayout lc = card(this); root.addView(lc, lp(this, -1, -2, 12));
     lc.addView(text(this, "Live transcript & whispers (text only – no audio is stored)", 12, MUTED));
     logT = text(this, "", 14, 0xFFE3ECF7); logT.setTextIsSelectable(true); lc.addView(logT);
-    setContentView(sv);
+    setContentView(outer);
     paintModes();
-    if (Prefs.s(this, "xai_key", "").isEmpty()) { settings.setVisibility(View.VISIBLE); WhisperService.log("First time: open Settings and enter your xAI API key."); }
+    if (Prefs.s(this, "xai_key", "").isEmpty()) { settings.setVisibility(View.VISIBLE); WhisperService.log("First time: open Settings and pair with PC01 (6-digit code) – that loads the xAI key."); }
     tick();
   }
   ProgressBar bar() { ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); pb.setMax(100); return pb; }
@@ -66,7 +69,7 @@ public class MainActivity extends Activity {
       new Thread(() -> { try { long t0 = SystemClock.uptimeMillis();
         String r = new Xai(Prefs.s(this, "xai_key", "")).chat(Prefs.s(this, "model", "grok-4.20-non-reasoning"), new org.json.JSONArray().put(new JSONObject().put("role", "user").put("content", "Reply with just: ready")), 5, 0, null);
         ui("Key works ✔ Grok replied \"" + r + "\" in " + (SystemClock.uptimeMillis() - t0) + " ms");
-      } catch (Exception e) { ui("Key test failed: " + e.getMessage()); } }).start();
+      } catch (Exception e) { ui("Key test failed: " + reason(e)); alert("Key test failed", reason(e)); } }).start();
     });
     c.addView(text(this, "Model", 13, MUTED), lp(this, -1, -2, 10));
     EditText model = edit(this, "grok-4.20-non-reasoning", Prefs.s(this, "model", "grok-4.20-non-reasoning")); c.addView(model);
@@ -92,12 +95,14 @@ public class MainActivity extends Activity {
     EditText url = edit(this, "Server URL", Prefs.s(this, "server", Prefs.DEFAULT_SERVER)); c.addView(url, lp(this, -1, -2, 6));
     EditText code = edit(this, "6-digit pairing code from PC01 admin page", ""); code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER); c.addView(code, lp(this, -1, -2, 6));
     Button pair = button(this, Prefs.token(this).isEmpty() ? "Pair with PC01" : "Re-pair with PC01 (paired)", CARD); c.addView(pair, lp(this, -1, -2, 6));
-    pair.setOnClickListener(v -> {
+    pair.setOnClickListener(v -> { if (code.getText().toString().trim().length() != 6) { alert("Pairing", "Enter the 6-digit code shown on the PC01 admin page."); return; }
       Prefs.put(this, "server", url.getText().toString().trim()); String cd = code.getText().toString().trim();
       new Thread(() -> { try {
         JSONObject r = new Api(this).call("/api/pair", new JSONObject().put("code", cd).put("name", Build.MANUFACTURER + " " + Build.MODEL));
-        Prefs.put(this, "token", r.getString("token")); ui("Paired with PC01 ✔ (device #" + r.optInt("deviceId") + ")");
-      } catch (Exception e) { ui("Pairing failed: " + e.getMessage()); } }).start();
+        Prefs.put(this, "token", r.getString("token"));
+        String k = r.optString("xaiKey", ""); if (!k.isEmpty()) Prefs.put(this, "xai_key", k);
+        ui("Paired with PC01 ✔ (device #" + r.optInt("deviceId") + ")" + (k.isEmpty() ? " – but PC01 sent no xAI key" : " · xAI key received ✔ – press START"));
+      } catch (Exception e) { String why = reason(e); ui("Pairing failed: " + why); alert("Pairing failed", why); } }).start();
     });
     return c;
   }
@@ -109,8 +114,25 @@ public class MainActivity extends Activity {
     if (Build.VERSION.SDK_INT >= 33) need.add(Manifest.permission.POST_NOTIFICATIONS);
     List<String> miss = new ArrayList<>(); for (String p : need) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) miss.add(p);
     if (!miss.isEmpty()) { requestPermissions(miss.toArray(new String[0]), 1); return; }
-    if (Prefs.s(this, "xai_key", "").isEmpty()) { settings.setVisibility(View.VISIBLE); WhisperService.log("Enter your xAI API key in Settings first."); return; }
+    if (Prefs.s(this, "xai_key", "").isEmpty()) {
+      if (!Prefs.token(this).isEmpty()) { startB.setEnabled(false); WhisperService.log("Fetching xAI key from PC01…");
+        new Thread(() -> { try { String k = new Api(this).call("/api/provision", null).optString("xaiKey"); if (k.isEmpty()) throw new Exception("PC01 has no xAI key");
+          Prefs.put(this, "xai_key", k); h.post(() -> { startB.setEnabled(true); startSvc(); }); }
+          catch (Exception e) { h.post(() -> { startB.setEnabled(true); alert("Can't get the xAI key", reason(e)); }); } }).start(); return; }
+      settings.setVisibility(View.VISIBLE); alert("Setup needed", "Pair with PC01 (Settings → 6-digit code) – that loads the xAI key automatically. Or paste an xAI key in Settings."); return; }
     startForegroundService(new Intent(this, WhisperService.class).setAction(WhisperService.ACTION_START));
+  }
+  void alert(String title, String msg) { h.post(() -> { if (!isFinishing()) new android.app.AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); }); }
+  static String reason(Exception e) {
+    String m = String.valueOf(e.getMessage());
+    if (m.startsWith("HTTP 403") && m.contains("code")) return "Code wrong, expired (codes last 10 min) or already used. Make a NEW code on the PC01 admin page and tap Pair once.";
+    if (m.startsWith("HTTP 401")) return "This phone isn't paired (or was revoked). Pair again with a new code.";
+    if (m.startsWith("HTTP 429")) return "Too many tries – wait a few minutes.";
+    if (m.startsWith("xAI HTTP 401") || m.startsWith("xAI HTTP 403")) return "xAI rejected the key: " + m;
+    if (m.startsWith("xAI HTTP 429")) return "xAI credit/rate limit: " + m;
+    if (e instanceof java.net.UnknownHostException) return "No internet or wrong server address (" + m + ").";
+    if (e instanceof java.net.SocketTimeoutException || e instanceof java.net.ConnectException) return "Can't reach the server (" + m + "). Check internet and the Server URL https://whisper.neuereatec.org";
+    return m;
   }
   void stopSvc() { startService(new Intent(this, WhisperService.class).setAction(WhisperService.ACTION_STOP)); }
   @Override public void onRequestPermissionsResult(int rc, String[] p, int[] g) { for (int x : g) if (x != PackageManager.PERMISSION_GRANTED) { WhisperService.log("Microphone and Nearby devices permissions are required."); return; } startSvc(); }
@@ -121,7 +143,8 @@ public class MainActivity extends Activity {
     routeT.setText(WhisperService.route + (WhisperService.lastTiming.isEmpty() ? "" : "\n" + WhisperService.lastTiming));
     meBar.setProgress(meter(WhisperService.levelMe)); themBar.setProgress(meter(WhisperService.levelThem));
     startB.setText(r ? "STOP" : "START listening"); startB.setBackground(round(r ? RED : GREEN, px(this, 12)));
-    logT.setText(String.join("\n", WhisperService.logSnapshot()));
+    List<String> lg = WhisperService.logSnapshot(); logT.setText(String.join("\n", lg));
+    lastT.setText(r ? WhisperService.status + " · " + WhisperService.route + (lg.isEmpty() ? "" : "\n" + lg.get(0)) : (Prefs.s(this, "xai_key", "").isEmpty() ? "Setup: Settings → pair with PC01 (6-digit code)" : "Ready – press START"));
     h.postDelayed(this::tick, 150);
   }
   static int meter(float rms) { return (int) Math.max(0, Math.min(100, (20 * Math.log10(Math.max(rms, 1)) - 20) * 100 / 60)); }

@@ -23,7 +23,7 @@ public class WhisperService extends Service {
   public static volatile boolean running; public static volatile float levelMe, levelThem, thrMe, thrThem;
   public static volatile String status = "Stopped", route = "-", lastTiming = ""; public static volatile long sessionStart;
   static final LinkedList<String> LOG = new LinkedList<>();
-  static final float[] SENS_MIN = {900, 450, 220}, SENS_MARGIN = {3.2f, 2.4f, 1.8f};
+  static final float[] SENS_MIN = {700, 300, 150}, SENS_MARGIN = {3.2f, 2.4f, 1.8f};
   static final String[] SENS_NAME = {"Low", "Normal", "High"};
   static final int END_SILENCE_FRAMES = 25; // 500 ms pause ends an utterance
 
@@ -34,7 +34,7 @@ public class WhisperService extends Service {
   }
   public static List<String> logSnapshot() { synchronized (LOG) { return new ArrayList<>(LOG); } }
 
-  class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr;
+  class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr; long frames; float peak;
     Chan(String l, boolean e) { label = l; earbud = e; } }
   /** One utterance at a time across both mics: the mic that hears speech first streams it; speaker = mic with higher SNR. */
   class Utt { int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n; boolean duringTts; }
@@ -195,7 +195,8 @@ public class WhisperService extends Service {
       int got; try { got = r.read(f, 0, FRAME); } catch (Throwable t) { got = -1; }
       c.lastRead = SystemClock.uptimeMillis();
       if (got <= 0) { SystemClock.sleep(20); continue; }
-      double s = 0; for (int i = 0; i < got; i++) s += (double) f[i] * f[i]; float rms = (float) Math.sqrt(s / got);
+      if (++c.frames % 250 == 0 && c.peak < 30) log(c.label + " mic is silent (no audio for 5 s) – check permissions/earbuds"); if (c.frames % 250 == 0) c.peak = 0;
+      double s = 0; for (int i = 0; i < got; i++) s += (double) f[i] * f[i]; float rms = (float) Math.sqrt(s / got); if (rms > c.peak) c.peak = rms;
       float thr = Math.max(SENS_MIN[sens], c.noise * SENS_MARGIN[sens]); c.snr = rms / Math.max(c.noise, 1);
       if (c == me) { levelMe = rms; thrMe = thr; } else { levelThem = rms; thrThem = thr; }
       boolean v = rms > thr; byte[] pcm = bytes(f, got);
@@ -235,14 +236,16 @@ public class WhisperService extends Service {
       status = "Transcribing…";
       String text = u.stt.result(2500); long tText = SystemClock.uptimeMillis();
       status = "Listening";
-      if (text == null || text.isEmpty()) { if (u.stt.error != null) log("STT: " + u.stt.error); return; }
+      if (text == null || text.isEmpty()) { log(u.stt.error != null ? "Speech-to-text error: " + u.stt.error : "(heard sound, no words)"); return; }
       if ((u.duringTts || System.currentTimeMillis() < lastWhisperAt + 4000) && echoOf(text, lastWhisper)) { log("(ignored own whisper echo)"); return; }
       String spk = !dual ? "Speaker" : (u.n > 0 && u.snrMe >= u.snrThem * 1.15 ? "Me" : "Them");
       boolean english = isEnglishish(text);
       log(spk + ": " + text);
       saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
       addCtx("user", "[" + spk + "] " + text);
-      boolean ask = "translate".equals(mode) ? !english : (!dual || "Me".equals(spk) == false);
+      // only skip Grok when it's clearly Calton himself (earbud much louder than phone mic)
+      boolean clearlyMe = dual && u.n > 0 && u.snrMe > u.snrThem * 2.5;
+      boolean ask = "translate".equals(mode) ? !english : !clearlyMe;
       if (!ask) return;
       whisper(u, tText);
     } catch (Throwable e) { status = "Listening"; log("Pipeline error: " + e.getMessage()); }
