@@ -37,11 +37,11 @@ public class WhisperService extends Service {
   class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr; long frames; float peak;
     Chan(String l, boolean e) { label = l; earbud = e; } }
   /** One utterance at a time across both mics: the mic that hears speech first streams it; speaker = mic with higher SNR. */
-  class Utt { int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n; boolean duringTts; }
+  class Utt { final Proximity.Acc acc = new Proximity.Acc(); int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n; boolean duringTts; }
 
   AudioManager am; Xai xai; Xai.Tts tts; PowerManager.WakeLock wl; Db db; Db.Session sess;
   Chan me, them; boolean dual; int sens; String mode, prebrief, model;
-  volatile Utt cur; final Object uttLock = new Object();
+  volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); volatile ScheduledFuture<?> pendingCoach;
   final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
   final LinkedList<JSONObject> ctx = new LinkedList<>();
@@ -202,7 +202,8 @@ public class WhisperService extends Service {
       boolean v = rms > thr; byte[] pcm = bytes(f, got);
       Utt u = cur;
       if (u != null) { // an utterance is open: track SNR of both mics for the speaker label
-        if (c == me) { u.snrMe += c.snr; u.n++; } else u.snrThem += c.snr;
+        if (c == me) { u.snrMe += c.snr; u.n++; u.acc.earbud(f, got, rms); } else { u.snrThem += c.snr; u.acc.phone(rms); }
+        if (c == u.owner) u.acc.spectral(f, got, rms, c.noise);
         if (playingUntil > SystemClock.uptimeMillis()) u.duringTts = true;
       }
       if (u == null || u.owner != c) {
@@ -212,6 +213,7 @@ public class WhisperService extends Service {
         if (voicedRun >= 3 && u == null && xai != null) {
           synchronized (uttLock) { if (cur == null) {
             Utt n = new Utt(); n.owner = c; n.startWall = System.currentTimeMillis() - 300; n.duringTts = playingUntil > SystemClock.uptimeMillis();
+            ScheduledFuture<?> pc = pendingCoach; if (pc != null) pc.cancel(false); // someone started talking: not a natural pause
             n.stt = xai.stt("translate".equals(mode) ? "" : "en"); for (byte[] p : pre) n.stt.push(p); pre.clear(); cur = n; silence = 0; voiced = 3; frames = 0;
           } }
         }
@@ -238,20 +240,67 @@ public class WhisperService extends Service {
       status = "Listening";
       if (text == null || text.isEmpty()) { log(u.stt.error != null ? "Speech-to-text error: " + u.stt.error : "(heard sound, no words)"); return; }
       if ((u.duringTts || System.currentTimeMillis() < lastWhisperAt + 4000) && echoOf(text, lastWhisper)) { log("(ignored own whisper echo)"); return; }
-      String spk = !dual ? "Speaker" : (u.n > 0 && u.snrMe >= u.snrThem * 1.15 ? "Me" : "Them");
+      // ---- voice proximity: soft near-owner score with an UNSURE middle band ----
+      Proximity.Feat pf = u.acc.feat();
+      if ("1".equals(Prefs.s(this, "cal_pending", "0"))) { Prefs.put(this, "cal_pending", "0"); Proximity.learn(this, pf, 3); log("✔ Learned your voice: " + pf); return; }
+      double near = Proximity.nearScore(this, pf);
+      String spk = Proximity.band(near);
+      if ("Me".equals(spk) && near >= 0.85) Proximity.learn(this, pf, 0.3); // passive profile from very confident own turns
       boolean english = isEnglishish(text);
-      log(spk + ": " + text);
+      log(spk + ": " + text + String.format(Locale.US, "   (near %.2f · %s)", near, pf));
+      // ---- direct address: wake word AND near voice → fast path. Unsure/far = conversation, keep listening ----
+      String cmd = Brain.wake(text);
+      if (cmd != null) {
+        if ("Me".equals(spk)) {
+          Proximity.learn(this, pf, 1); // light passive voice profile from Calton's own commands
+          saveTurn("command", spk, english ? "en" : "", text, u.startWall);
+          JSONArray msgs = new JSONArray().put(Learn.msg("system", Brain.commandPrompt(sess, brain))).put(Learn.msg("user", cmd.isEmpty() ? text : cmd));
+          speakStream(u, tText, msgs, true); return;
+        }
+        log("(wake word but voice " + ("Unsure".equals(spk) ? "unsure" : "not near") + " – treated as conversation)");
+      }
       saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
-      addCtx("user", "[" + spk + "] " + text);
-      // only skip Grok when it's clearly Calton himself (earbud much louder than phone mic)
-      boolean clearlyMe = dual && u.n > 0 && u.snrMe > u.snrThem * 2.5;
-      boolean ask = "translate".equals(mode) ? !english : !clearlyMe;
-      if (!ask) return;
-      whisper(u, tText);
+      addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text);
+      if ("Unsure".equals(spk)) brain.unsure++;
+      if ("translate".equals(mode)) { if (!english && !"Me".equals(spk)) whisper(u, tText); return; }
+      if ("street".equals(mode)) { if ("Them".equals(spk)) whisper(u, tText); return; }
+      // ---- coach: listen first; decide only at a natural pause after the other person finishes ----
+      if ("Them".equals(spk)) { ScheduledFuture<?> pc = pendingCoach; if (pc != null) pc.cancel(false);
+        pendingCoach = sched.schedule(() -> proc.execute(this::coachDecide), 900, TimeUnit.MILLISECONDS); }
     } catch (Throwable e) { status = "Listening"; log("Pipeline error: " + e.getMessage()); }
   }
 
+  void coachDecide() {
+    try {
+      long now = System.currentTimeMillis();
+      String why = brain.preGate(now, cur != null);
+      if (why != null) { log("(listening: " + why + ")"); return; }
+      status = "Thinking…";
+      String raw = xai.chat(model, brain.assessMessages(this, sess), 140, 0.5, null);
+      status = "Listening";
+      int a = raw.indexOf('{'), b = raw.lastIndexOf('}'); if (a < 0 || b < a) { log("(coach: unreadable reply)"); return; }
+      JSONObject j = new JSONObject(raw.substring(a, b + 1));
+      String say = brain.gate(j, now);
+      log(String.format(Locale.US, "🧭 %s · conf %.2f%s · %s", brain.topic, brain.confidence, brain.openQuestion.isEmpty() ? "" : " · open: " + brain.openQuestion, say == null ? "stay quiet" : j.optString("kind")));
+      if (say == null) return;
+      if (cur != null) { log("(someone started talking – held back)"); brain.lastCoachAt = 0; return; }
+      speakText(say);
+    } catch (Throwable e) { status = "Listening"; log("Coach error: " + e.getMessage()); }
+  }
+  void speakText(String say) {
+    if (!"0".equals(Prefs.s(this, "voice", "1"))) { final float vol = Float.parseFloat(Prefs.s(this, "vol", "0.35"));
+      tts.begin(new Xai.Audio() { public void on(byte[] pcm) { play(pcm, vol); } public void done() {} }); tts.text(clean(say)); tts.finish(); }
+    lastWhisper = say; lastWhisperAt = System.currentTimeMillis();
+    log("🗣 javis: " + say); saveTurn("whisper", "javis", "", say, System.currentTimeMillis()); addCtx("assistant", say);
+  }
+
   void whisper(Utt u, long tText) throws Exception {
+    JSONArray msgs = new JSONArray().put(new JSONObject().put("role", "system").put("content", Learn.systemPrompt(this, sess, mode)));
+    synchronized (ctx) { for (JSONObject o : ctx) msgs.put(o); }
+    speakStream(u, tText, msgs, false);
+  }
+  /** Streams Grok → Ara TTS token by token (low latency). force = command path (never SKIP). */
+  void speakStream(Utt u, long tText, JSONArray msgs, boolean force) throws Exception {
     status = "Thinking…";
     final long[] tFirstTok = {0}, tFirstAudio = {0}; final StringBuilder held = new StringBuilder(); final boolean[] live = {false};
     boolean voice = !"0".equals(Prefs.s(this, "voice", "1"));
@@ -260,9 +309,7 @@ public class WhisperService extends Service {
       public void on(byte[] pcm) { if (tFirstAudio[0] == 0) tFirstAudio[0] = SystemClock.uptimeMillis(); play(pcm, vol); }
       public void done() {}
     });
-    JSONArray msgs = new JSONArray().put(new JSONObject().put("role", "system").put("content", Learn.systemPrompt(this, sess, mode)));
-    synchronized (ctx) { for (JSONObject o : ctx) msgs.put(o); }
-    String all = xai.chat(model, msgs, 60, 0.6, t -> {
+    String all = xai.chat(model, msgs, force ? 90 : 60, 0.6, t -> {
       if (tFirstTok[0] == 0) tFirstTok[0] = SystemClock.uptimeMillis();
       if (!voice) return;
       if (!live[0]) { held.append(t); String h = held.toString().trim();

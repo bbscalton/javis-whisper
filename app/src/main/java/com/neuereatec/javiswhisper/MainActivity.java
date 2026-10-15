@@ -86,6 +86,9 @@ public class MainActivity extends Activity {
     sensB.setOnClickListener(v -> { Prefs.put(this, "sens", String.valueOf((Integer.parseInt(Prefs.s(this, "sens", "1")) + 1) % 3)); ps.run(); });
     Switch dual = new Switch(this); dual.setText("Use phone mic for the other person (labels Me / Them)"); dual.setTextColor(0xFFFFFFFF); dual.setChecked("1".equals(Prefs.s(this, "dual", "1"))); c.addView(dual, lp(this, -1, -2, 10));
     dual.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "dual", on ? "1" : "0"));
+    Button cal = button(this, Prefs.s(this, "prox_prof", "").isEmpty() ? "Teach javis my voice (optional)" : "Teach javis my voice again (optional)", CARD); c.addView(cal, lp(this, -1, -2, 10));
+    cal.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Optional – javis also learns your voice by itself from your ‘Whisper, …’ commands. Press START first, then tap this and say one normal sentence with the earbud in."); return; }
+      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, e.g. ‘This is Calton testing my earbud.’"); });
     Switch voice = new Switch(this); voice.setText("Speak whispers in earbud (off = text only)"); voice.setTextColor(0xFFFFFFFF); voice.setChecked(!"0".equals(Prefs.s(this, "voice", "1"))); c.addView(voice, lp(this, -1, -2, 10));
     voice.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "voice", on ? "1" : "0"));
 
