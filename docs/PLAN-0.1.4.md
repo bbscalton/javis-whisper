@@ -27,14 +27,25 @@ floor, vs other mic, vs his own profile). If that proves insufficient on the S94
 (e.g. small ECAPA/x-vector TFLite, ~2–5 MB, enrolled from his commands) as one more cue in the same score; (b) more
 weight on the dual-mic gap. No hard switch either way.
 
+## Conversation membership (who Calton is actually talking with)
+Everything heard is kept, background included. When a **Me** turn starts within 6 s after a far (**Them**) turn ends and is
+on the same topic (shared content words, or a short reply to a question), javis marks *"Calton is in this conversation"*
+and attaches that far voice as his **Partner** (coarse voice fingerprint: level vs floor, echo depth, bass, tilt; EMA).
+Later far turns are tagged `[Partner]` if they match, `[Other]` if not. Coaching only runs when Calton is engaged
+(on-topic reply within the last 3 min) **and** the last far turn was his Partner; the coach JSON also returns
+`calton_engaged` (<0.4 → stay quiet). Far conversations with no topical reply from Calton = background → waited out.
+The mode + pre-brief steer which single heads-up is most useful.
+
 ## Code touchpoints
-- `Brain.java` (new): `wake()`, rolling `window`/`topic`/`confidence`, `preGate()`, `assessMessages()`, `gate()`, `commandPrompt()`.
+- `Brain.java` (new): `wake()`, `checkMembership()`, `partnerMatch()`, `engaged()`, rolling `window`/`topic`/`confidence`, `preGate()`, `assessMessages()`, `gate()`, `commandPrompt()`.
 - `Proximity.java` (new): `Acc` per-utterance features, `nearScore()`, `band()`, `learn()` (profile in EncryptedSharedPreferences `prox_prof`).
 - `WhisperService.java`: `readLoop` feeds features + cancels pending coach when speech starts; `process()` = proximity band →
   wake path / conversation; `coachDecide()`; `speakText()`; `speakStream()` (was `whisper`). Street answers only `Them`; translate skips `Me`.
 - `MainActivity.java`: optional "Teach javis my voice"; log shows `near 0.xx` and features per line, and `🧭 topic · conf` decisions.
 
 ## Risks
+- Partner fingerprint uses distance cues only (not a true voice embedding); two far people at similar distance may be confused.
+- Membership needs Calton to reply on topic first, so the first exchange with a new person never gets coached.
 - Cue thresholds are first guesses; needs a real session to tune (log lines show the scores).
 - Coach is now deliberately quiet; first minute of a talk = no whispers by design.
 - One extra Grok call per qualifying pause (JSON, ~140 tokens).

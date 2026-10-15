@@ -18,8 +18,37 @@ public class Brain {
   String topic = "", openQuestion = ""; double confidence; long topicSince, lastCoachAt; int turnsSinceTopic, speakerTurns, unsure; long lastMeAt; String lastSpk = "";
   final long sessionStart = System.currentTimeMillis();
 
-  void heard(String spk, String text) {
-    window.add("[" + spk + "] " + text); while (window.size() > 40) window.remove(0);
+  // ---- conversation membership: is Calton actually talking WITH this far voice? ----
+  static final Set<String> STOP = new HashSet<>(Arrays.asList("the","a","an","and","or","but","is","are","was","were","be","to","of","in","on","at","for","with","that","this","it","its","i","you","we","they","he","she","me","my","your","our","do","does","did","so","just","like","yeah","yes","no","ok","okay","what","how","why","when","where","who","there","here","have","has","had","not","can","will","would","could","about","then","than","too","very","really","oh","um","uh","well","know","think","get","got"));
+  double[] partner;                 // far voice attached as Calton's partner: snrDb, modDb, lowRatio, hfRatio (EMA)
+  long engagedAt; String lastThemText = ""; long lastThemEnd; double[] lastThemFeat; boolean lastThemPartner;
+  static Set<String> words(String t) { Set<String> r = new HashSet<>(); for (String w : t.toLowerCase(Locale.US).split("[^\\p{L}\\p{N}]+")) if (w.length() > 2 && !STOP.contains(w)) r.add(w); return r; }
+  static double[] fv(Proximity.Feat f) { return new double[]{f.snrDb, f.modDb, f.lowRatio, f.hfRatio}; }
+  /** 0..1 how well a far voice matches the attached partner (coarse – distance cues only). */
+  double partnerMatch(double[] v) {
+    if (partner == null) return 0.5;
+    double d = Math.abs(v[0] - partner[0]) / 6 + Math.abs(v[1] - partner[1]) / 6 + Math.abs(v[2] - partner[2]) / Math.max(partner[2], 0.05) + Math.abs(v[3] - partner[3]) / Math.max(partner[3], 0.05);
+    return 1 / (1 + Math.exp((d - 1.6) / 0.4));
+  }
+  boolean engaged(long now) { return engagedAt > 0 && now - engagedAt < 180_000; }
+  /** Calton's reply right after a far turn, on the same topic → he's in that conversation; attach that voice as partner. */
+  String checkMembership(String text, long startWall, double llmTopical) {
+    if (lastThemEnd == 0 || startWall - lastThemEnd > 6000 || startWall < lastThemEnd - 500) return null; // turn-taking timing
+    Set<String> a = words(lastThemText), b = words(text); int hit = 0; for (String w : b) if (a.contains(w)) hit++;
+    boolean question = lastThemText.trim().endsWith("?"), shortReply = b.size() <= 3;
+    boolean topical = hit >= 1 || (question && shortReply) || llmTopical >= 0.6;
+    if (!topical) return null;
+    engagedAt = System.currentTimeMillis();
+    if (lastThemFeat != null) { if (partner == null) partner = lastThemFeat.clone(); else for (int i = 0; i < 4; i++) partner[i] += 0.3 * (lastThemFeat[i] - partner[i]); }
+    return hit >= 1 ? "shared words" : question ? "answered a question" : "topic match";
+  }
+
+  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f) {
+    String tag = spk;
+    if ("Them".equals(spk)) { double[] v = fv(f); double pm = partnerMatch(v); lastThemPartner = partner == null || pm >= 0.5;
+      tag = partner == null ? "Them" : lastThemPartner ? "Partner" : "Other"; lastThemText = text; lastThemEnd = endWall; lastThemFeat = v; }
+    else if ("Me".equals(spk)) { String why = checkMembership(text, startWall, 0); if (why != null) WhisperService.log("🤝 Calton is in this conversation (" + why + ")"); }
+    window.add("[" + tag + "] " + text); while (window.size() > 40) window.remove(0);
     if ("Me".equals(spk)) lastMeAt = System.currentTimeMillis();
     if (!spk.equals(lastSpk)) speakerTurns++; lastSpk = spk; turnsSinceTopic++;
   }
@@ -27,7 +56,8 @@ public class Brain {
   String preGate(long now, boolean calTalking) {
     if (calTalking) return "Calton is talking";
     if (!"Them".equals(lastSpk)) return "Me".equals(lastSpk) ? "last turn was Calton" : "unsure who spoke – waiting it out";
-    if (now - lastMeAt > 120_000) return "Calton not in this conversation (background) – ignoring";
+    if (!engaged(now)) return "background – Calton hasn't replied to this voice on-topic yet";
+    if (!lastThemPartner) return "a different far voice (not his partner) – waiting it out";
     if (now - lastCoachAt < 25_000) return "cooldown";
     boolean enough = speakerTurns >= 3 || (window.size() >= 3 && now - sessionStart > 20_000);
     if (!enough) return "still listening (" + window.size() + " turns)";
@@ -38,7 +68,7 @@ public class Brain {
       + "You are NOT a commentator. Coaching on snippets is worse than silence. First understand the whole back-and-forth, then decide.\n\n"
       + "Return ONLY compact JSON: {\"topic\":\"<5-10 words>\",\"confidence\":0..1 (how sure you understand where the conversation is),"
       + "\"open_question\":\"<what's unresolved or ''>\",\"mid_topic\":true|false (the other person is still building a point / unfinished),"
-      + "\"kind\":\"fact_error\"|\"answer\"|\"value\"|\"none\",\"say\":\"<one sentence ≤15 words for Calton's earbud, or SKIP>\"}\n\n"
+      + "\"calton_engaged\":0..1 (is Calton actually talking with the [Partner]/[Them] voice, replying on topic?),\"kind\":\"fact_error\"|\"answer\"|\"value\"|\"none\",\"say\":\"<one sentence ≤15 words for Calton's earbud, or SKIP>\"}\n\n"
       + "Say something ONLY if: (a) someone stated a clear factual error that matters (kind fact_error, give the correct fact), or "
       + "(b) Calton was asked something he may not know and a short concrete answer helps (kind answer), or "
       + "(c) there's a genuinely sharp point/question that moves things forward for Calton (kind value, give the exact words). "
@@ -54,6 +84,7 @@ public class Brain {
     String newTopic = j.optString("topic", topic);
     if (!similar(newTopic, topic)) { topicSince = now; turnsSinceTopic = 0; }
     topic = newTopic; confidence = j.optDouble("confidence", 0); openQuestion = j.optString("open_question", "");
+    if (j.optDouble("calton_engaged", 1) < 0.4) return null;   // model thinks he isn't really in this conversation
     String say = j.optString("say", "SKIP").trim(), kind = j.optString("kind", "none");
     if (say.isEmpty() || say.toUpperCase(Locale.US).startsWith("SKIP") || "none".equals(kind)) return null;
     if (j.optBoolean("mid_topic", false) && !"fact_error".equals(kind)) return null;      // never interrupt a point being made

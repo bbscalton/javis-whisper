@@ -260,7 +260,7 @@ public class WhisperService extends Service {
         log("(wake word but voice " + ("Unsure".equals(spk) ? "unsure" : "not near") + " – treated as conversation)");
       }
       saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
-      addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text);
+      addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text, u.startWall, System.currentTimeMillis() - u.vadMs - (SystemClock.uptimeMillis() - u.endUp), pf);
       if ("Unsure".equals(spk)) brain.unsure++;
       if ("translate".equals(mode)) { if (!english && !"Me".equals(spk)) whisper(u, tText); return; }
       if ("street".equals(mode)) { if ("Them".equals(spk)) whisper(u, tText); return; }
