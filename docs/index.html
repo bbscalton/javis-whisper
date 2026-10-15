@@ -11,12 +11,45 @@ section{background:var(--card);border-radius:16px;padding:20px 22px;margin:18px 
 ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;border-radius:6px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.mode{background:#0e2546;border-radius:12px;padding:14px}
 .mode b{color:#7cc4ff}footer{text-align:center;color:var(--muted);font-size:13px;padding:20px}
+
+.hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:28px;max-width:900px;margin:auto}
+.hero .txt{flex:1 1 320px;text-align:left}.hero h1{font-size:44px}.hero .lead{color:#dce8f7;font-size:19px;margin:10px 0 18px}
+.art{flex:0 0 260px;height:260px;position:relative}
+.rip{fill:none;stroke:#7cc4ff;stroke-width:3;opacity:0;transform-origin:150px 128px;animation:rip 2.4s ease-out infinite}
+.rip.r2{animation-delay:.8s}.rip.r3{animation-delay:1.6s}
+@keyframes rip{0%{opacity:.9;transform:scale(1.6)}100%{opacity:0;transform:scale(.35)}}
+.bud{animation:glow 2.4s ease-in-out infinite}@keyframes glow{50%{fill:#9fe0ff}}
+.caps{position:relative;height:34px;margin:6px 0 20px}.caps span{position:absolute;left:0;top:0;opacity:0;font-style:italic;color:#9fe0ff;font-size:18px;animation:cap 16s infinite}
+.caps span:nth-child(2){animation-delay:4s}.caps span:nth-child(3){animation-delay:8s}.caps span:nth-child(4){animation-delay:12s}
+@keyframes cap{0%{opacity:0;transform:translateY(6px)}4%,22%{opacity:1;transform:none}26%,100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.rip,.bud,.caps span{animation:none}.rip.r1{opacity:.6}.caps span:first-child{opacity:1}}
+.vers{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.ver{background:#0e2546;border-radius:14px;padding:16px;border:2px solid transparent}.ver.now{border-color:#2e7d32}
+.ver h3{margin:0 0 4px}.pill{display:inline-block;font-size:12px;padding:3px 9px;border-radius:99px;background:#2e7d32;margin-bottom:8px}.pill.soon{background:#1e88e5}.pill.later{background:#5c6b80}
+.ver a.btn{font-size:16px;padding:10px 16px;margin-top:8px}
+.tabs{display:flex;gap:8px;margin:26px 0 0}.tabs a{flex:1;text-align:center;padding:12px;border-radius:12px 12px 0 0;background:#0e2546;color:#9fb3cf;text-decoration:none;font-weight:600}
+.tabs a.on{background:#132f57;color:#fff}.tab{display:none}.tab.on{display:block}.tab>section:first-child{margin-top:0;border-top-left-radius:0;border-top-right-radius:0}
 </style></head><body>
-<header><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
-<p><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it actually has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
+<header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
+<p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
+<div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
 <a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/latest/download/JavisWhisper.apk">⬇ Download for Android</a>
-<p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases">all versions</a></p></header>
+<p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases">all versions</a></p></div>
+<div class="art" aria-hidden="true"><svg viewBox="0 0 260 260" width="260" height="260">
+<circle cx="130" cy="130" r="122" fill="#132f57"/>
+<path d="M150 46c-40 0-70 30-70 70 0 22 8 34 14 46 4 9 2 22-2 34l-8 24h76l2-22c22-2 34-14 36-30l2-16 14-6-14-30c0-42-20-70-50-70z" fill="#1e4a85"/>
+<path d="M146 112c-7 0-12 6-12 14s5 14 12 14" fill="none" stroke="#0b1e3a" stroke-width="4" stroke-linecap="round"/>
+<circle class="bud" cx="150" cy="128" r="9" fill="#7cc4ff"/>
+<circle class="rip r1" cx="150" cy="128" r="22"/><circle class="rip r2" cx="150" cy="128" r="22"/><circle class="rip r3" cx="150" cy="128" r="22"/>
+</svg></div></div></header>
 <main>
+<section><h2>Versions</h2><div class="vers">
+<div class="ver now"><span class="pill">Available now</span><h3>0.1.4 – a friend in your ear</h3>Listens to the whole conversation, works out the topic, learns your voice, answers “Whisper, …” instantly, waits when unsure.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/latest/download/JavisWhisper.apk">⬇ Download 0.1.4</a> <a style="color:#9cf" href="#v014">Guide</a></div>
+<div class="ver"><span class="pill soon">Coming next</span><h3>0.1.5 – remembers people, reads the room</h3>Remembers who you talk to and what was promised; knows a negotiation from a family dinner; warmer, quicker voice. <a style="color:#9cf" href="#v015">Details</a></div>
+<div class="ver"><span class="pill later">Coming</span><h3>0.1.6 – hears how it’s said</h3>Tone and mood from the voice, handles people talking over each other, sharper voice recognition. <a style="color:#9cf" href="#v016">Details</a></div>
+</div></section>
+<nav class="tabs"><a href="#v014" data-t="v014">0.1.4 · Available now</a><a href="#v015" data-t="v015">0.1.5 · Coming next</a><a href="#v016" data-t="v016">0.1.6 · Coming</a></nav>
+<div class="tab on" id="v014">
 <section><h2>How javis behaves – like a friend, not a commentator</h2><div class="grid">
 <div class="mode"><b>Listens to the whole back-and-forth</b><br>It doesn’t jump on the first sentence. It lets a few turns land – both sides – before it even thinks about coaching.</div>
 <div class="mode"><b>Works out the topic first</b><br>It keeps a running picture of what you’re talking about and what’s still open, and only speaks once it’s sure it understands.</div>
@@ -72,4 +105,21 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 <li><b>It stops when the screen is off</b> – set Battery to Unrestricted (step 1.3).</li>
 <li><b>Hears its own whisper</b> – it ignores echoes automatically; if it still repeats, lower the volume.</li>
 <li>No internet = no whispers (xAI is in the cloud); history stays on the phone.</li></ul></section>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.4 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</div>
+<div class="tab" id="v015"><section><h2>0.1.5 – coming next</h2><p>javis gets a memory and reads the room, so it feels even more like a friend who knows the people you meet.</p><div class="grid">
+<div class="mode"><b>Remembers people</b><br>Learns names from your pre-brief or “this is John”, and from their voice. Next time: “That’s Marcus – last time he wanted delivery by Friday.”</div>
+<div class="mode"><b>Conversation notes</b><br>After each talk: topic, key facts, who promised what, what’s still open. Ask later: “Whisper, what did I promise?”</div>
+<div class="mode"><b>Reads the room</b><br>Meeting, negotiation, sale, casual, family, street or call – and coaches to match: more heads-ups on numbers in a negotiation, nearly silent at family dinner. Tap to override.</div>
+<div class="mode"><b>Knows your goal</b><br>Uses your pre-brief: “You wanted 6% – they haven’t said a rate yet.”</div>
+<div class="mode"><b>Gets the joke</b><br>Spots humour and sarcasm, so it never “corrects” a joke. Notices hesitation: “He’s unsure – push gently.”</div>
+<div class="mode"><b>Local smarts</b><br>Guyana context: GYD prices, local places and names, understands Creolese.</div>
+<div class="mode"><b>Warmer, quicker voice</b><br>Ara a touch slower and softer; “Whisper, …” answers in about a second.</div>
+<div class="mode"><b>Private by design</b><br>People and notes are text only, encrypted on your phone, editable and deletable. Never audio.</div></div></section></div>
+<div class="tab" id="v016"><section><h2>0.1.6 – coming</h2><div class="grid">
+<div class="mode"><b>Hears how it’s said</b><br>Mood and tone from the voice itself – impatient, warm, nervous – not just the words.</div>
+<div class="mode"><b>Talking over each other</b><br>Notices interruptions and overlaps, never whispers into them, and tells you if you got cut off.</div>
+<div class="mode"><b>Sharper voice recognition</b><br>A small on-phone voice model to tell you and the people you know apart even better.</div>
+<div class="mode"><b>The one blind spot</b><br>javis can’t see faces or body language – it listens harder instead, and says so honestly.</div></div></section></div>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.4 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer><script>(function(){function show(){var h=(location.hash||'#v014').slice(1);if(!document.getElementById(h)||!/^v01/.test(h))h='v014';
+document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('on',t.id===h)});document.querySelectorAll('.tabs a').forEach(function(a){a.classList.toggle('on',a.dataset.t===h)})}
+window.addEventListener('hashchange',show);show()})();</script></body></html>
