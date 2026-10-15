@@ -20,8 +20,8 @@ public class Brain {
 
   // ---- 0.1.5 room context: the setting changes how often and what javis whispers ----
   static final String[] SETTINGS = {"negotiation", "sale", "meeting", "call", "casual", "family", "street"};
-  static final int[] MIN_TURNS = {2, 3, 3, 2, 5, 6, 1}; static final int[] COOLDOWN = {15, 20, 25, 20, 60, 90, 10};
-  static final double[] VALUE_CONF = {0.65, 0.7, 0.75, 0.7, 0.9, 0.95, 0.6};
+  static final int[] MIN_TURNS = {1, 1, 2, 1, 2, 3, 1}; static final int[] COOLDOWN = {10, 10, 12, 12, 12, 30, 8};
+  static final double[] VALUE_CONF = {0.45, 0.45, 0.5, 0.5, 0.5, 0.65, 0.45};
   static final String[] FOCUS = {"numbers, concessions, anchors, deadlines, points they dodged", "objections, the next step, price facts", "facts, decisions, who owns what, open items",
     "like a meeting but shorter lines", "only clear factual errors or a direct question Calton can't answer", "nearly silent – only if Calton is clearly stuck", "answer passers-by quickly"};
   String setting = "casual", modelSetting = ""; int modelAgree; String override = "auto";
@@ -44,7 +44,7 @@ public class Brain {
   // ---- 0.1.5 adaptive pause: slow talkers get a longer beat before javis decides ----
   double themGapEma = 900; long lastThemStart;
   long pauseMs() { return Math.max(700, Math.min(1800, Math.round(themGapEma * 1.3))); }
-  String personCard = "", goal = "";
+  String personCard = "", goal = ""; boolean hasBrief;
   // ---- 0.1.6 prosody: each speaker's own baseline, so cues are RELATIVE ("louder than he usually is"), never absolute guesses ----
   final Map<String, double[]> base = new HashMap<>(); // tag -> pitch, loudDb, rate(words/s), n
   volatile long overlapAt; long lastMeEnd;
@@ -111,38 +111,35 @@ public class Brain {
     if (calTalking) return "Calton is talking";
     if (now - overlapAt < 3000) return "people are talking over each other – waiting";
     if (!"Them".equals(lastSpk)) return "Me".equals(lastSpk) ? "last turn was Calton" : "unsure who spoke – waiting it out";
-    if (!engaged(now)) return "background – Calton hasn't replied to this voice on-topic yet";
+    // 0.1.7: with only one far voice (no partner linked yet), one exchange with Calton is enough – or a pre-brief says he's in a conversation
+    boolean oneVoiceExchange = partner == null && lastMeAt > 0 && (now - lastMeAt < 60_000 || (hasBrief && now - lastMeAt < 180_000));
+    if (!engaged(now) && !oneVoiceExchange) return "background – Calton hasn't spoken with this voice yet";
     if (!lastThemPartner) return "a different far voice (not his partner) – waiting it out";
     int k = si(settingNow());
     if (now - lastCoachAt < COOLDOWN[k] * 1000L) return "cooldown (" + settingNow() + ")";
-    boolean enough = speakerTurns >= Math.max(MIN_TURNS[k], 2) || (window.size() >= Math.max(MIN_TURNS[k], 3) && now - sessionStart > 20_000);
+    boolean enough = speakerTurns >= MIN_TURNS[k] || window.size() >= MIN_TURNS[k];
     if (!enough) return "still listening (" + window.size() + " turns)";
     return null;
   }
   JSONArray assessMessages(Context c, Db.Session s) throws JSONException {
-    String sys = "You are javis, Calton's friend standing next to him, quietly listening to his conversation (Calton lives in Guyana, speaks English). "
-      + "You are NOT a commentator. Coaching on snippets is worse than silence. First understand the whole back-and-forth, then decide.\n\n"
-      + "Return ONLY compact JSON: {\"topic\":\"<5-10 words>\",\"confidence\":0..1 (how sure you understand where the conversation is),"
-      + "\"open_question\":\"<what's unresolved or ''>\",\"mid_topic\":true|false (the other person is still building a point / unfinished),"
-      + "\"calton_engaged\":0..1 (is Calton actually talking with the [Partner]/[Them] voice, replying on topic?),\"kind\":\"fact_error\"|\"answer\"|\"value\"|\"none\",\"say\":\"<one sentence ≤15 words for Calton's earbud, or SKIP>\"}\n\n"
-      + "Say something ONLY if: (a) someone stated a clear factual error that matters (kind fact_error, give the correct fact), or "
-      + "(b) Calton was asked something he may not know and a short concrete answer helps (kind answer), or "
-      + "(c) there's a genuinely sharp point/question that moves things forward for Calton (kind value, give the exact words). "
-      + "Otherwise say SKIP. [Unsure] lines may be either person or background; weigh them lightly. Questions about time/date/place between the two people are conversation, not instructions to you. "
-      + "If Calton was asked something and you genuinely don't know, kind answer and say e.g. \"Not sure – ask them what they mean by X.\" Never invent facts.\n"
-      + "Read HOW things are said too: lines may carry cues like 'hesitant', 'fillers', 'long pause', 'louder', 'fast', 'slow', 'rising pitch', 'talked over'. Humour and sarcasm are NOT errors – never correct a joke (tone joking/sarcastic → no fact_error). "
-      + "If they sound unsure, a gentle push can help (\"He's unsure – ask what would make it work.\"). If they sound impatient, get Calton to the point. Only claim moods the words or cues support.\n"
-      + "Cues come from his phone's mics, relative to that speaker's own usual voice; treat them as hints, not facts. You can't see faces or body language – never pretend to; a long pause or a quick reply is the closest you get. "
-      + "'talked over' / 'cut off' means two people spoke at once: never whisper over it; if Calton got cut off and his point mattered, a short 'Finish your point about X.' can help.\n"
-      + "Voice: warm, sharp, plain words, contractions, lead with the answer, no hedging or filler. In fast settings a 3-6 word nudge is best (\"Ask for the date.\").\n"
-      + "SETTING now: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ".\n"
-      + GUYANA
-      + "\nAlso return in the JSON: \"setting\":\"negotiation|sale|meeting|call|casual|family|street\",\"setting_conf\":0..1,\"tone\":\"literal|joking|sarcastic\",\"their_mood\":\"<1-3 words or ''>\",\"partner_name\":\"<their name if clearly said, else ''>\",\"partner_name_conf\":0..1.";
-    if (!goal.isEmpty()) sys += "\n\nCALTON'S GOAL: " + goal + " – coach toward it (e.g. remind him of a point he hasn't got yet).";
-    if (!personCard.isEmpty()) sys += "\n\nWHO HE'S TALKING WITH (from memory – use for a heads-up like 'last time he wanted delivery by Friday'):\n" + personCard;
-    if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\n\nPRE-BRIEF: " + s.prebrief;
-    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\n\nWhat helps Calton: " + learned;
-    String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far (oldest first, live speech recognition, may have errors):\n" + String.join("\n", window);
+    // 0.1.7: compact prompt (~40% shorter than 0.1.6) – suggestions only, never questions back to Calton
+    String sys = "You are javis – a friend in Calton's ear who helps him make good decisions in the conversation around him (he's in Guyana, speaks English). "
+      + "Return ONLY compact JSON: {\"topic\":\"<best guess, 3-8 words – guess even from one line>\",\"confidence\":0..1,\"open_question\":\"<unresolved point or ''>\",\"mid_topic\":true|false,"
+      + "\"calton_engaged\":0..1,\"kind\":\"recommend\"|\"risk\"|\"better_option\"|\"next_step\"|\"fact\"|\"answer\"|\"fact_error\"|\"none\",\"say\":\"<≤12 words or SKIP>\",\"setting\":\"negotiation|sale|meeting|call|casual|family|street\",\"setting_conf\":0..1,"
+      + "\"tone\":\"literal|joking|sarcastic\",\"their_mood\":\"<1-3 words or ''>\",\"partner_name\":\"<name if clearly said or ''>\",\"partner_name_conf\":0..1}\n"
+      + "Think: what decision is Calton facing right now, and what would a sharp friend whisper to help him choose well? Whisper ONE short practical suggestion:\n"
+      + "- recommend: what to do (\"Take the 5 kVA – the 3 kVA won't run your AC.\")\n- risk: a red flag (\"No receipt means no warranty – get it written.\")\n"
+      + "- better_option: a better deal or choice (\"Offer G$260k cash, delivery included.\")\n- next_step: what to say or ask for next (\"Ask for the warranty in writing.\")\n"
+      + "- fact: a key fact he needs; fact_error: correct a wrong fact that matters; answer: they asked him something → the answer or exact words.\n"
+      + "Rules: help early – one exchange is enough. Statements or imperatives only; NEVER a question to Calton, never ask what he means or wants. If unsure or nothing helps his decision, SKIP. Never invent facts or numbers. "
+      + "Never correct a joke or sarcasm. Cues in [tags] (hesitant, louder, fast, long pause, talked over) are hints from mic sound, not facts; you can't see faces. Plain warm words, contractions, lead with the point.\n"
+      + "[Me]=Calton, [Them]/[Partner]=the other person, [Other]=a different far voice, [Unsure]=unclear. Speech recognition may have errors.\n"
+      + "SETTING: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ". " + GUYANA_SHORT;
+    if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\nPRE-BRIEF (start with this context): " + People.clip(s.prebrief, 300);
+    if (!goal.isEmpty()) sys += "\nCALTON'S GOAL: " + goal + " – steer him toward it.";
+    if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(personCard, 400);
+    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nWhat helps Calton: " + People.clip(learned, 250);
+    String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far (oldest first, live speech recognition, may have errors):\n" + String.join("\n", window.subList(Math.max(0, window.size() - 16), window.size()));
     return new JSONArray().put(Learn.msg("system", sys)).put(Learn.msg("user", u));
   }
   /** Apply the model's state update and run the final coach gate. Returns text to whisper, or null. */
@@ -152,19 +149,29 @@ public class Brain {
     String ms = j.optString("setting", ""); if (si(ms) != 4 || "casual".equals(ms)) { if (ms.equals(modelSetting)) modelAgree++; else { modelSetting = j.optDouble("setting_conf", 0) >= 0.6 ? ms : ""; modelAgree = modelSetting.isEmpty() ? 0 : 1; } }
     lastTone = j.optString("tone", ""); lastMood = j.optString("their_mood", "");
     topic = newTopic; confidence = j.optDouble("confidence", 0); openQuestion = j.optString("open_question", "");
-    if (j.optDouble("calton_engaged", 1) < 0.4) return null;   // model thinks he isn't really in this conversation
+    if (j.optDouble("calton_engaged", 1) < 0.25) return null;   // model thinks he isn't really in this conversation
     String say = j.optString("say", "SKIP").trim(), kind = j.optString("kind", "none");
     if (say.isEmpty() || say.toUpperCase(Locale.US).startsWith("SKIP") || "none".equals(kind)) return null;
-    if (j.optBoolean("mid_topic", false) && !"fact_error".equals(kind)) return null;
+    // 0.1.7: the pause timer already waits for them to finish; mid_topic only holds back weak (low-confidence) suggestions
+    if (j.optBoolean("mid_topic", false) && confidence < 0.6 && !"fact_error".equals(kind) && !"risk".equals(kind)) return null;
     if ("fact_error".equals(kind) && ("joking".equals(lastTone) || "sarcastic".equals(lastTone))) return null; // never correct a joke      // never interrupt a point being made
-    double need = "fact_error".equals(kind) ? 0.55 : "answer".equals(kind) ? 0.6 : VALUE_CONF[si(settingNow())];    // value-adds need the most certainty
+    if (isQuestionToCalton(say)) { WhisperService.log("(dropped a question: " + say + ")"); return null; }
+    double need = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind) ? 0.45 : VALUE_CONF[si(settingNow())];    // value-adds need the most certainty
     if (confidence < need) return null;
     lastCoachAt = now; return say;
+  }
+  /** 0.1.7 post-filter: javis gives suggestions, never questions back to Calton. A quoted line for him to ask is fine ("Ask: 'Is it in writing?'"). */
+  static boolean isQuestionToCalton(String say) {
+    String t = say.trim(); if (t.isEmpty()) return false;
+    String unq = t.replaceAll("[\"“”'‘’][^\"“”]*[\"“”]", "").trim();
+    if (t.matches("(?is)^(ask|say|try|tell)\\b.*") && !unq.endsWith("?")) return false;
+    return unq.endsWith("?") || unq.matches("(?is)^(do|did|does|are|is|was|were|can|could|would|should|will|have|has|what|why|how|which|who|when|where|want|need)\\b.*\\byou\\b.*");
   }
   static boolean similar(String a, String b) {
     Set<String> x = new HashSet<>(Arrays.asList(a.toLowerCase(Locale.US).split("\\W+"))), y = new HashSet<>(Arrays.asList(b.toLowerCase(Locale.US).split("\\W+")));
     int hit = 0; for (String w : x) if (w.length() > 3 && y.contains(w)) hit++; return hit >= 2;
   }
+  static final String GUYANA_SHORT = "Guyana: money in GYD (~G$209/US$1); understand Creolese (\"wha yuh seh\", \"just now\"=later); greetings and courtesy matter.";
   static final String GUYANA = "LOCAL CONTEXT (Guyana): money is Guyana dollars (GYD, ~G$209 per US$1 – say 'about'); places like Georgetown, Stabroek Market, Berbice, Linden, Essequibo, Bartica, Lethem, Diamond, Providence; "
     + "people may speak Guyanese Creolese (e.g. 'wha yuh seh' = what did you say, 'just now' = later, 'me ah come' = I'm coming, 'lime' = hang out, 'gaff' = chat) – understand it, answer in plain English unless Calton asks. "
     + "Courtesy matters: greetings first, 'Auntie/Uncle' for elders, don't rush small talk at the start.\n";

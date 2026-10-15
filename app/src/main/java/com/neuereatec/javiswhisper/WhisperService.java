@@ -79,7 +79,7 @@ public class WhisperService extends Service {
       mode = Prefs.s(this, "mode", "coach"); prebrief = Prefs.s(this, "prebrief", "");
       dual = "1".equals(Prefs.s(this, "dual", "1")); sens = Integer.parseInt(Prefs.s(this, "sens", "1"));
       sess = new Db.Session(); sess.started = System.currentTimeMillis(); sess.mode = mode; sess.prebrief = prebrief; sess.id = db.d().add(sess);
-      people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
+      brain.hasBrief = !prebrief.isEmpty(); if (brain.hasBrief) brain.topic = People.clip(prebrief, 60); people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
       final String pb = prebrief; proc.execute(() -> { people.fromPrebrief(xai, model, pb); brain.goal = people.goal; brain.personCard = people.card; });
       log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
       startBt();
