@@ -35,7 +35,7 @@ function auth(req) {
   const d = db.prepare('SELECT * FROM devices WHERE token_hash=? AND revoked=0').get(sha(t));
   if (d) db.prepare('UPDATE devices SET last_seen=? WHERE id=?').run(now(), d.id); return d;
 }
-const FAILS = new Map();
+const FAILS = new Map(); let GFAILS = []; // per-IP 10 and global 30 failed admin attempts per 15 min
 const isAdmin = (req, u) => { const k = String(u.searchParams.get('k') || req.headers['x-admin-token'] || ''); return crypto.timingSafeEqual(crypto.createHash('sha256').update(k).digest(), crypto.createHash('sha256').update(ADMIN).digest()); };
 
 // ---------- Grok ----------
@@ -124,8 +124,9 @@ http.createServer(async (req, res) => {
     if (p.startsWith('/admin')) {
       const ip = String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?');
       const f = (FAILS.get(ip) || []).filter(t => t > Date.now() - 15 * 60e3);
-      if (f.length >= 10) { FAILS.set(ip, f); return send(res, 429, { error: 'too many failed attempts, try again later' }); }
-      if (!isAdmin(req, u)) { f.push(Date.now()); FAILS.set(ip, f); log('admin auth fail', ip); return send(res, 401, { error: 'admin key required' }); }
+      GFAILS = GFAILS.filter(t => t > Date.now() - 15 * 60e3);
+      if (f.length >= 10 || GFAILS.length >= 30) { FAILS.set(ip, f); return send(res, 429, { error: 'too many failed attempts, try again later' }); }
+      if (!isAdmin(req, u)) { f.push(Date.now()); GFAILS.push(Date.now()); FAILS.set(ip, f); log('admin auth fail', ip); return send(res, 401, { error: 'admin key required' }); }
       const k = encodeURIComponent(u.searchParams.get('k') || '');
       if (p === '/admin/code' && req.method === 'POST') { const code = String(crypto.randomInt(100000, 999999)); db.prepare('INSERT OR REPLACE INTO codes VALUES(?,?)').run(code, Date.now() + 600e3); return send(res, 200, adminHtml(k, `<p>Enter this code in the app (Settings → Pair):</p><div class=code>${code}</div>`), 'text/html'); }
       if (p === '/admin/revoke' && req.method === 'POST') { db.prepare('UPDATE devices SET revoked=1 WHERE id=?').run(+u.searchParams.get('id')); return send(res, 200, adminHtml(k, '<p>Device revoked.</p>'), 'text/html'); }
