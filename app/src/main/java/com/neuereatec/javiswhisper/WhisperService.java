@@ -255,6 +255,13 @@ public class WhisperService extends Service {
       if ("Me".equals(spk) && near >= 0.85) Proximity.learn(this, pf, 0.3); // passive profile from very confident own turns
       boolean english = isEnglishish(text);
       String cues = cues(text, u, spk);
+      // 0.1.6: tone from the voice (relative to each speaker's own baseline), overlap, and pause timing
+      String who = "Me".equals(spk) ? "Me" : "Them".equals(spk) ? (brain.partner != null && brain.partnerMatch(Brain.fv(pf)) >= 0.5 ? "Partner" : "Them") : "";
+      List<String> extra = new ArrayList<>(); if (!cues.isEmpty()) extra.add(cues);
+      if (!who.isEmpty()) { String pr = brain.prosody(who, text, pf); if (!pr.isEmpty()) extra.add(pr); }
+      String tc = brain.timingCue(spk, u.startWall); if (!tc.isEmpty()) extra.add(tc);
+      if (pf.overlap) { brain.overlapAt = System.currentTimeMillis(); extra.add("Me".equals(spk) ? "talked over – Calton may have been cut off" : "talked over"); }
+      cues = String.join(", ", extra);
       log(spk + ": " + text + (cues.isEmpty() ? "" : "  [" + cues + "]") + String.format(Locale.US, "   (near %.2f · %s)", near, pf));
       // ---- direct address: wake word AND near voice → fast path. Unsure/far = conversation, keep listening ----
       String cmd = Brain.wake(text);

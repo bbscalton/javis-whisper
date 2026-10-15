@@ -45,6 +45,28 @@ public class Brain {
   double themGapEma = 900; long lastThemStart;
   long pauseMs() { return Math.max(700, Math.min(1800, Math.round(themGapEma * 1.3))); }
   String personCard = "", goal = "";
+  // ---- 0.1.6 prosody: each speaker's own baseline, so cues are RELATIVE ("louder than he usually is"), never absolute guesses ----
+  final Map<String, double[]> base = new HashMap<>(); // tag -> pitch, loudDb, rate(words/s), n
+  volatile long overlapAt; long lastMeEnd;
+  String prosody(String who, String text, Proximity.Feat f) {
+    List<String> r = new ArrayList<>(); int words = text.trim().split("\\s+").length; double rate = f.voicedSec > 0.6 ? words / f.voicedSec : 0;
+    double[] b = base.get(who);
+    if (b != null && b[3] >= 3) {
+      if (f.pitch > 0 && b[0] > 0 && f.pitch > b[0] * 1.15) r.add("higher pitch than usual"); else if (f.pitch > 0 && b[0] > 0 && f.pitch < b[0] * 0.88) r.add("lower, flatter voice");
+      if (f.loudDb > b[1] + 4) r.add("louder"); else if (f.loudDb > 0 && f.loudDb < b[1] - 5) r.add("quieter");
+      if (rate > 0 && b[2] > 0 && rate > b[2] * 1.3) r.add("fast"); else if (rate > 0 && b[2] > 0 && rate < b[2] * 0.7) r.add("slow");
+    }
+    if (f.pitchEnd > 1.12 && !text.trim().endsWith("?")) r.add("rising pitch at the end");
+    if (b == null) b = new double[]{0, 0, 0, 0}; double a = b[3] < 5 ? 1.0 / (b[3] + 1) : 0.15;
+    if (f.pitch > 0) b[0] = b[0] <= 0 ? f.pitch : b[0] + a * (f.pitch - b[0]); if (f.loudDb > 0) b[1] = b[1] <= 0 ? f.loudDb : b[1] + a * (f.loudDb - b[1]); if (rate > 0) b[2] = b[2] <= 0 ? rate : b[2] + a * (rate - b[2]);
+    b[3]++; base.put(who, b);
+    return String.join(", ", r);
+  }
+  /** Voice-and-pause stand-in for body language: how quickly someone answered. */
+  String timingCue(String spk, long startWall) {
+    if ("Them".equals(spk) && lastMeEnd > 0 && "Me".equals(lastSpk)) { long g = startWall - lastMeEnd; if (g > 2500 && g < 12000) return "long pause before answering"; if (g >= 0 && g < 250) return "answered instantly"; }
+    return "";
+  }
   String lastTone = "", lastMood = "";
 
   // ---- conversation membership: is Calton actually talking WITH this far voice? ----
@@ -52,11 +74,12 @@ public class Brain {
   double[] partner;                 // far voice attached as Calton's partner: snrDb, modDb, lowRatio, hfRatio (EMA)
   long engagedAt; String lastThemText = ""; long lastThemEnd; double[] lastThemFeat; boolean lastThemPartner;
   static Set<String> words(String t) { Set<String> r = new HashSet<>(); for (String w : t.toLowerCase(Locale.US).split("[^\\p{L}\\p{N}]+")) if (w.length() > 2 && !STOP.contains(w)) r.add(w); return r; }
-  static double[] fv(Proximity.Feat f) { return new double[]{f.snrDb, f.modDb, f.lowRatio, f.hfRatio}; }
+  static double[] fv(Proximity.Feat f) { return new double[]{f.snrDb, f.modDb, f.lowRatio, f.hfRatio, f.pitch}; }
   /** 0..1 how well a far voice matches the attached partner (coarse – distance cues only). */
   double partnerMatch(double[] v) {
     if (partner == null) return 0.5;
     double d = Math.abs(v[0] - partner[0]) / 6 + Math.abs(v[1] - partner[1]) / 6 + Math.abs(v[2] - partner[2]) / Math.max(partner[2], 0.05) + Math.abs(v[3] - partner[3]) / Math.max(partner[3], 0.05);
+    if (v.length > 4 && partner.length > 4 && v[4] > 0 && partner[4] > 0) d += Math.abs(Math.log(v[4] / partner[4])) / 0.15; // 0.1.6: pitch separates two far voices that sit at the same distance
     return 1 / (1 + Math.exp((d - 1.6) / 0.4));
   }
   boolean engaged(long now) { return engagedAt > 0 && now - engagedAt < 180_000; }
@@ -68,7 +91,7 @@ public class Brain {
     boolean topical = hit >= 1 || (question && shortReply) || llmTopical >= 0.6;
     if (!topical) return null;
     engagedAt = System.currentTimeMillis();
-    if (lastThemFeat != null) { if (partner == null) partner = lastThemFeat.clone(); else for (int i = 0; i < 4; i++) partner[i] += 0.3 * (lastThemFeat[i] - partner[i]); }
+    if (lastThemFeat != null) { if (partner == null) partner = lastThemFeat.clone(); else for (int i = 0; i < Math.min(partner.length, lastThemFeat.length); i++) if (i < 4 || (lastThemFeat[i] > 0 && partner[i] > 0)) partner[i] += 0.3 * (lastThemFeat[i] - partner[i]); else if (partner[i] <= 0) partner[i] = lastThemFeat[i]; }
     return hit >= 1 ? "shared words" : question ? "answered a question" : "topic match";
   }
 
@@ -80,12 +103,13 @@ public class Brain {
       tag = partner == null ? "Them" : lastThemPartner ? "Partner" : "Other"; lastThemText = text; lastThemEnd = endWall; lastThemFeat = v; }
     else if ("Me".equals(spk)) { String why = checkMembership(text, startWall, 0); if (why != null) WhisperService.log("🤝 Calton is in this conversation (" + why + ")"); }
     window.add("[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text); while (window.size() > 40) window.remove(0);
-    if ("Me".equals(spk)) lastMeAt = System.currentTimeMillis();
+    if ("Me".equals(spk)) { lastMeAt = System.currentTimeMillis(); lastMeEnd = endWall; }
     if (!spk.equals(lastSpk)) speakerTurns++; lastSpk = spk; turnsSinceTopic++;
   }
   /** Cheap pre-gate before spending an LLM call. */
   String preGate(long now, boolean calTalking) {
     if (calTalking) return "Calton is talking";
+    if (now - overlapAt < 3000) return "people are talking over each other – waiting";
     if (!"Them".equals(lastSpk)) return "Me".equals(lastSpk) ? "last turn was Calton" : "unsure who spoke – waiting it out";
     if (!engaged(now)) return "background – Calton hasn't replied to this voice on-topic yet";
     if (!lastThemPartner) return "a different far voice (not his partner) – waiting it out";
@@ -108,6 +132,8 @@ public class Brain {
       + "If Calton was asked something and you genuinely don't know, kind answer and say e.g. \"Not sure – ask them what they mean by X.\" Never invent facts.\n"
       + "Read HOW things are said too: lines may carry cues like 'hesitant', 'fillers', 'long pause', 'louder', 'fast', 'slow', 'rising pitch', 'talked over'. Humour and sarcasm are NOT errors – never correct a joke (tone joking/sarcastic → no fact_error). "
       + "If they sound unsure, a gentle push can help (\"He's unsure – ask what would make it work.\"). If they sound impatient, get Calton to the point. Only claim moods the words or cues support.\n"
+      + "Cues come from his phone's mics, relative to that speaker's own usual voice; treat them as hints, not facts. You can't see faces or body language – never pretend to; a long pause or a quick reply is the closest you get. "
+      + "'talked over' / 'cut off' means two people spoke at once: never whisper over it; if Calton got cut off and his point mattered, a short 'Finish your point about X.' can help.\n"
       + "Voice: warm, sharp, plain words, contractions, lead with the answer, no hedging or filler. In fast settings a 3-6 word nudge is best (\"Ask for the date.\").\n"
       + "SETTING now: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ".\n"
       + GUYANA
