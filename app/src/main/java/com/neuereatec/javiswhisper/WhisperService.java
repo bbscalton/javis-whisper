@@ -194,7 +194,7 @@ public class WhisperService extends Service {
 
   // ---------------- capture + VAD (never pauses while whispering) ----------------
   void readLoop(Chan c) {
-    try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Throwable ignored) {}
+    try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Throwable ignored) {}
     short[] f = new short[FRAME]; ArrayDeque<short[]> pre = new ArrayDeque<>();
     ByteArrayOutputStream utt = null; int voicedRun = 0, silence = 0, voiced = 0, frames = 0; double sum = 0; long uttStart = 0; boolean tts = false;
     while (running) {
