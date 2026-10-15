@@ -5,10 +5,10 @@ import androidx.room.migration.Migration;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 import java.util.List;
 /** Local text-only history (Room). Never stores audio. v2 (0.1.5) adds people memory + per-person conversation notes. */
-@Database(entities = {Db.Session.class, Db.Turn.class, Db.Person.class, Db.Convo.class}, version = 2, exportSchema = false)
+@Database(entities = {Db.Session.class, Db.Turn.class, Db.Person.class, Db.Convo.class}, version = 3, exportSchema = false)
 public abstract class Db extends RoomDatabase {
   @Entity(tableName = "sessions") public static class Session {
-    @PrimaryKey(autoGenerate = true) public long id; public long started, ended; public String mode, prebrief, summary; public boolean synced;
+    @PrimaryKey(autoGenerate = true) public long id; public long started, ended; public String mode, prebrief, summary, version; public boolean synced;
   }
   @Entity(tableName = "turns", indices = @Index("sessionId")) public static class Turn {
     @PrimaryKey(autoGenerate = true) public long id; public long sessionId, ts; public String kind, speaker, lang, text;
@@ -44,6 +44,7 @@ public abstract class Db extends RoomDatabase {
     db.execSQL("CREATE TABLE IF NOT EXISTS `convos` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sessionId` INTEGER NOT NULL, `personId` INTEGER NOT NULL, `started` INTEGER NOT NULL, `ended` INTEGER NOT NULL, `setting` TEXT, `topic` TEXT, `keyFacts` TEXT, `promises` TEXT, `openItems` TEXT, `summary` TEXT)");
     db.execSQL("CREATE INDEX IF NOT EXISTS `index_convos_personId` ON `convos` (`personId`)");
   } };
+  static final Migration M2_3 = new Migration(2, 3) { @Override public void migrate(SupportSQLiteDatabase db) { db.execSQL("ALTER TABLE `sessions` ADD COLUMN `version` TEXT"); } };
   private static Db inst;
-  public static synchronized Db get(Context c) { if (inst == null) inst = Room.databaseBuilder(c.getApplicationContext(), Db.class, "javis-whisper.db").addMigrations(M1_2).allowMainThreadQueries().build(); return inst; }
+  public static synchronized Db get(Context c) { if (inst == null) inst = Room.databaseBuilder(c.getApplicationContext(), Db.class, "javis-whisper.db").addMigrations(M1_2, M2_3).allowMainThreadQueries().build(); return inst; }
 }

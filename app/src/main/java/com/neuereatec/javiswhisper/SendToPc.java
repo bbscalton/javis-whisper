@@ -36,7 +36,7 @@ public class SendToPc {
     JSONArray ss = new JSONArray();
     for (Db.Session s : pick) { JSONArray ts = new JSONArray();
       for (Db.Turn t : Db.get(a).d().turns(s.id)) ts.put(new JSONObject().put("ts", Learn.iso(t.ts)).put("kind", t.kind).put("speaker", t.speaker).put("lang", t.lang).put("text", t.text));
-      ss.put(new JSONObject().put("started", Learn.iso(s.started)).put("ended", s.ended > 0 ? Learn.iso(s.ended) : "").put("mode", s.mode).put("prebrief", s.prebrief).put("summary", s.summary).put("turns", ts)); }
+      ss.put(new JSONObject().put("started", Learn.iso(s.started)).put("ended", s.ended > 0 ? Learn.iso(s.ended) : "").put("mode", s.mode).put("version", s.version).put("prebrief", s.prebrief).put("summary", s.summary).put("turns", ts)); }
     JSONArray log = new JSONArray(); long to = which == 0 && !pick.isEmpty() && pick.get(0).ended > 0 ? pick.get(0).ended + 60_000 : now + 1;
     WhisperService.initLog(a); File lf = WhisperService.logFile;
     for (File f : new File[]{new File(lf.getPath() + ".1"), lf}) if (f.exists()) try (BufferedReader r = new BufferedReader(new FileReader(f))) { String l;

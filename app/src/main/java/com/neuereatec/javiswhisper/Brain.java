@@ -20,7 +20,7 @@ public class Brain {
 
   // ---- 0.1.5 room context: the setting changes how often and what javis whispers ----
   static final String[] SETTINGS = {"negotiation", "sale", "meeting", "call", "casual", "family", "street"};
-  static final int[] MIN_TURNS = {1, 1, 2, 1, 2, 3, 1}; static final int[] COOLDOWN = {10, 10, 12, 12, 12, 30, 8};
+  static final int[] MIN_TURNS = {1, 1, 2, 1, 2, 3, 1}; static final int[] COOLDOWN = {10, 10, 12, 12, 12, 30, 10};
   static final double[] VALUE_CONF = {0.45, 0.45, 0.5, 0.5, 0.5, 0.65, 0.45};
   static final String[] FOCUS = {"numbers, concessions, anchors, deadlines, points they dodged", "objections, the next step, price facts", "facts, decisions, who owns what, open items",
     "like a meeting but shorter lines", "only clear factual errors or a direct question Calton can't answer", "nearly silent – only if Calton is clearly stuck", "answer passers-by quickly"};
@@ -44,7 +44,7 @@ public class Brain {
   // ---- 0.1.5 adaptive pause: slow talkers get a longer beat before javis decides ----
   double themGapEma = 900; long lastThemStart;
   long pauseMs() { return Math.max(700, Math.min(1800, Math.round(themGapEma * 1.3))); }
-  String personCard = "", goal = ""; boolean hasBrief;
+  String personCard = "", goal = ""; boolean hasBrief; volatile boolean meSeen, monologue;
   // ---- 0.1.6 prosody: each speaker's own baseline, so cues are RELATIVE ("louder than he usually is"), never absolute guesses ----
   final Map<String, double[]> base = new HashMap<>(); // tag -> pitch, loudDb, rate(words/s), n
   volatile long overlapAt; long lastMeEnd;
@@ -109,6 +109,8 @@ public class Brain {
   /** Cheap pre-gate before spending an LLM call. */
   String preGate(long now, boolean calTalking) {
     if (calTalking) return "Calton is talking";
+    if (!meSeen) return "voice not learned yet – waiting to hear Calton first";
+    if (monologue) return "one voice talking on with no reply from Calton (video or speech) – background";
     if (now - overlapAt < 3000) return "people are talking over each other – waiting";
     if (!"Them".equals(lastSpk)) return "Me".equals(lastSpk) ? "last turn was Calton" : "unsure who spoke – waiting it out";
     // 0.1.7: with only one far voice (no partner linked yet), one exchange with Calton is enough – or a pre-brief says he's in a conversation
@@ -134,6 +136,7 @@ public class Brain {
       + "Rules: help early – one exchange is enough. Statements or imperatives only; NEVER a question to Calton, never ask what he means or wants. If unsure or nothing helps his decision, SKIP. Never invent facts or numbers. "
       + "Never correct a joke or sarcasm. Cues in [tags] (hesitant, louder, fast, long pause, talked over) are hints from mic sound, not facts; you can't see faces. Plain warm words, contractions, lead with the point.\n"
       + "[Me]=Calton, [Them]/[Partner]=the other person, [Other]=a different far voice, [Unsure]=unclear. Speech recognition may have errors.\n"
+      + Guard.clock() + " " + Guard.RULES + "\n"
       + "SETTING: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ". " + GUYANA_SHORT;
     if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\nPRE-BRIEF (start with this context): " + People.clip(s.prebrief, 300);
     if (!goal.isEmpty()) sys += "\nCALTON'S GOAL: " + goal + " – steer him toward it.";

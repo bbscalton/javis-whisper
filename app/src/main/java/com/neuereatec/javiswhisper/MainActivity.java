@@ -7,7 +7,7 @@ import static com.neuereatec.javiswhisper.Ui.*;
 public class MainActivity extends Activity {
   final Handler h = new Handler(Looper.getMainLooper());
   TextView statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
-  LinearLayout settings; Button settingChip;
+  LinearLayout settings; Button settingChip, voiceB;
   void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
   @Override protected void onCreate(Bundle b) {
@@ -26,6 +26,9 @@ public class MainActivity extends Activity {
     st.addView(text(this, "Earbud mic (Me)", 12, MUTED), lp(this, -1, -2, 8)); meBar = bar(); st.addView(meBar, lp(this, -1, px(this, 10), 2));
     st.addView(text(this, "Phone mic (Them)", 12, MUTED), lp(this, -1, -2, 6)); themBar = bar(); st.addView(themBar, lp(this, -1, px(this, 10), 2));
 
+    voiceB = button(this, "🎙 Voice not learned – javis waits until it knows you. Tap to teach it (START, then say one sentence).", 0xFFEF6C00); voiceB.setTextSize(13); root.addView(voiceB, lp(this, -1, -2, 10));
+    voiceB.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Press START first, then tap this again and say one normal sentence."); return; }
+      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, e.g. ‘This is Calton testing my earbud.’"); });
     LinearLayout modes = new LinearLayout(this); root.addView(modes, lp(this, -1, -2, 12));
     for (String[] m : new String[][]{{"coach", "Coach"}, {"translate", "Translate"}, {"street", "Street"}}) {
       Button bt = button(this, m[1], CARD); modeBtns.put(m[0], bt); LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, -2, 1); l.setMargins(px(this, 3), 0, px(this, 3), 0); modes.addView(bt, l);
@@ -154,7 +157,7 @@ public class MainActivity extends Activity {
     routeT.setText(WhisperService.route + (WhisperService.lastTiming.isEmpty() ? "" : "\n" + WhisperService.lastTiming));
     meBar.setProgress(meter(WhisperService.levelMe)); themBar.setProgress(meter(WhisperService.levelThem));
     startB.setText(r ? "STOP" : "START listening"); startB.setBackground(round(r ? RED : GREEN, px(this, 12)));
-    paintChip();
+    paintChip(); voiceB.setVisibility(Prefs.s(this, "prox_prof", "").isEmpty() ? View.VISIBLE : View.GONE);
     List<String> lg = WhisperService.logSnapshot(); logT.setText(String.join("\n", lg));
     lastT.setText(r ? WhisperService.status + " · " + WhisperService.route + (lg.isEmpty() ? "" : "\n" + lg.get(0)) : (Prefs.s(this, "xai_key", "").isEmpty() ? "Setup: Settings → pair with PC01 (6-digit code)" : "Ready – press START"));
     h.postDelayed(this::tick, 150);

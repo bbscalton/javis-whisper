@@ -19,6 +19,7 @@ public class Xai {
     String finalText; long endAt; volatile long lastFinalAt; final CountDownLatch latch = new CountDownLatch(1); String error;
     Stt(String lang) {
       String u = "wss://api.x.ai/v1/stt?sample_rate=16000&encoding=pcm&interim_results=false&endpointing=300" + (lang == null || lang.isEmpty() ? "" : "&language=" + lang);
+      String[] kt = keyterms; if (kt != null) for (String k : kt) try { u += "&keyterm=" + java.net.URLEncoder.encode(k.length() > 50 ? k.substring(0, 50) : k, "UTF-8"); } catch (Exception ignored) {}
       ws = HTTP.newWebSocket(rq(u).build(), this);
     }
     public synchronized void push(byte[] pcm) { if (done) return; if (ready) ws.send(ByteString.of(pcm)); else pending.add(pcm); }
@@ -46,6 +47,7 @@ public class Xai {
     @Override public void onFailure(WebSocket w, Throwable t, Response r) { error = t + (r != null ? " HTTP " + r.code() : ""); latch.countDown(); }
     @Override public void onClosed(WebSocket w, int c, String r) { latch.countDown(); }
   }
+  public static volatile String[] keyterms;
   public Stt stt(String lang) { return new Stt(lang); }
 
   // ---------- Grok streaming ----------

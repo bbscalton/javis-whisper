@@ -15,6 +15,7 @@ public class Learn {
     StringBuilder b = new StringBuilder();
     b.append("You are javis, a friend in Calton's ear who helps him make good decisions in the conversation around him, whispering live into his earbud. Calton lives in Guyana and speaks English.\n\n");
     b.append("Voice: warm, sharp, concise. Plain words, contractions, friendly but direct, like a smart friend at his shoulder with street smarts. Lead with the answer. One short sentence, max 15 words, ideally under 10. Be concrete: the actual fact, number or name, or the exact words to say. No hedging, filler, greetings, 'As an AI', 'it seems', 'you might want to', no markdown.\n\n");
+    b.append(Guard.clock()).append(" ").append(Guard.RULES).append("\n\n");
     b.append("Only speak when it genuinely helps. Give suggestions, answers or facts – never ask Calton a question back. If nothing useful to add, reply with exactly: SKIP\n\n");
     b.append(MODES.containsKey(mode) ? MODES.get(mode) : MODES.get("coach")).append("\n\n");
     b.append("Lines are live speech recognition and may contain errors; infer what was meant. [Me] = Calton, [Them] = the other person, [Speaker] = unknown. Never repeat what was just said.\n\n");
@@ -28,7 +29,7 @@ public class Learn {
     List<Db.Turn> turns = Db.get(c).d().turns(s.id); if (turns.isEmpty() || x == null) return;
     StringBuilder tx = new StringBuilder(); for (Db.Turn t : turns) tx.append("whisper".equals(t.kind) ? "JAVIS" : t.speaker).append(": ").append(t.text).append('\n');
     String t = tx.length() > 12000 ? tx.substring(tx.length() - 12000) : tx.toString();
-    s.summary = x.chat(model, new JSONArray().put(msg("system", "Summarise this earbud-companion session in at most 3 sentences: who, topic, outcome, which whispers helped or were ignored. Plain text.")).put(msg("user", "Mode " + s.mode + ". Pre-brief: " + s.prebrief + "\n" + t)), 160, 0.3, null);
+    s.summary = x.chat(model, new JSONArray().put(msg("system", "Summarise this earbud-companion session in at most 3 sentences: who, topic, outcome, which whispers helped or were ignored. Plain text only – no markdown, no headings, no asterisks. Plain text.")).put(msg("user", "Mode " + s.mode + ". Pre-brief: " + s.prebrief + "\n" + t)), 160, 0.3, null);
     Db.get(c).d().update(s); WhisperService.log("Session summary: " + s.summary);
     String note = x.chat(model, new JSONArray().put(msg("system", "Maintain a compact note (max 120 words) of what helps Calton in conversations: preferred whisper style, recurring people/topics, corrections. Merge the new session into the existing note. Output only the note.")).put(msg("user", "Existing note: " + Prefs.s(c, "learned", "(none)") + "\nNew session: " + s.summary)), 220, 0.3, null);
     if (!note.isEmpty()) Prefs.put(c, "learned", note);
@@ -46,7 +47,7 @@ public class Learn {
     JSONArray ss = new JSONArray();
     for (Db.Session s : Db.get(c).d().sessions()) { JSONArray ts = new JSONArray();
       for (Db.Turn t : Db.get(c).d().turns(s.id)) ts.put(new JSONObject().put("ts", iso(t.ts)).put("kind", t.kind).put("speaker", t.speaker).put("text", t.text));
-      ss.put(new JSONObject().put("started", iso(s.started)).put("mode", s.mode).put("prebrief", s.prebrief).put("summary", s.summary).put("turns", ts)); }
+      ss.put(new JSONObject().put("started", iso(s.started)).put("mode", s.mode).put("version", s.version).put("prebrief", s.prebrief).put("summary", s.summary).put("turns", ts)); }
     JSONArray pp = new JSONArray(); for (Db.Person p : Db.get(c).d().people()) { JSONArray cs = new JSONArray();
       for (Db.Convo cv : Db.get(c).d().convos(p.id, 1000)) cs.put(new JSONObject().put("started", iso(cv.started)).put("setting", cv.setting).put("topic", cv.topic).put("keyFacts", cv.keyFacts).put("promises", cv.promises).put("openItems", cv.openItems).put("summary", cv.summary));
       pp.put(new JSONObject().put("name", p.name).put("relationship", p.relationship).put("aliases", p.aliases).put("notes", p.notes).put("conversations", cs)); }
