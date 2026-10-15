@@ -21,10 +21,11 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 <li>Tap <b>Download for Android</b> on the phone, open the file, allow <b>Install unknown apps</b> for your browser when asked.</li>
 <li>Open <b>Javis Whisper</b>. When you press START the first time, allow <b>Microphone</b>, <b>Nearby devices</b> (Bluetooth) and <b>Notifications</b>.</li>
 <li>Samsung: Settings → Apps → Javis Whisper → Battery → <b>Unrestricted</b>, so it keeps listening with the screen off.</li></ol></section>
-<section><h2>2 · Pair with your PC01 server (once per phone)</h2><ol>
-<li>On PC01 open the admin page (link is in <code>C:\javis-whisper\README-admin.txt</code>) and click <b>New pairing code</b>.</li>
-<li>In the app tap <b>Settings</b>, check the <b>Server URL</b> is <code>https://whisper.neuereatec.org</code> (pre-filled) and enter the 6‑digit code, tap <b>Pair this phone</b>, then <b>Test connection</b> → “Connected ✔”.</li>
-<li>New phone? Pair it the same way – it sees all your history. Lost phone? Click <b>Revoke</b> next to it on the admin page.</li></ol></section>
+<section><h2>2 · Enter your xAI key (once)</h2><ol>
+<li>Get an API key at <a style="color:#9cf" href="https://console.x.ai">console.x.ai</a> → API Keys (your plan must include voice / Ara).</li>
+<li>In the app tap <b>Settings</b>, paste it into <b>xAI API key</b>, tap <b>Save &amp; test key</b> → “Key works ✔”.</li>
+<li>The key is stored encrypted on this phone only. The phone talks to xAI directly: speech-to-text, Grok and the <b>Ara</b> voice.</li>
+<li>Optional: <b>PC01 backup sync</b> (off by default) uploads finished sessions as text to your PC01 server after pairing with a code.</li></ol></section>
 <section><h2>3 · Connect the earbuds</h2><ol>
 <li>Pair the earbuds in Android Bluetooth settings as normal and make sure <b>Calls</b> is enabled for them.</li>
 <li>Wear the earbud(s). The app uses the earbud microphone in “call” mode (SCO) – the status line shows <b>Earbuds (SCO) · mic earbud</b>.</li>
@@ -32,7 +33,7 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 <section><h2>4 · Pre-brief & go</h2><ol>
 <li>Pick a mode, then type a short <b>pre-brief</b>: who you are meeting and the topic (e.g. “GBTI loan officer, crane truck financing”).</li>
 <li>Press <b>START listening</b>. Put the phone face‑up on the table or in a shirt pocket – the phone mic hears the other person (“Them”), your earbud hears you (“Me”).</li>
-<li>Talk normally. Whispers come at low volume right after the other person finishes a sentence. Javis keeps listening while it whispers.</li>
+<li>Talk normally. javis answers in Ara’s voice about 2 seconds after the other person stops – one short, concrete line, or nothing if there’s nothing useful to say. It keeps listening while it whispers.</li>
 <li>Press <b>STOP</b> (or Stop in the notification). The session summary is saved on PC01 and makes the next session smarter.</li></ol></section>
 <section><h2>Modes</h2><div class="grid">
 <div class="mode"><b>Coach</b><br>Flags things that are wrong, gives the right fact, adds background or a smart point you could make. Stays silent if there is nothing useful.</div>
@@ -42,18 +43,18 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 <li><b>Whisper volume</b> – default is quiet (35%). Also use the phone’s volume buttons during a session.</li>
 <li><b>Mic sensitivity</b> Low / Normal / High – raise it if quiet speakers are missed, lower it in noisy places. Watch the two level meters.</li>
 <li><b>Use phone mic for the other person</b> – on = Me/Them labels (recommended). Off = earbud only.</li>
-<li><b>Speak whispers</b> – off = silent mode, read whispers on screen.</li></ul></section>
+<li><b>Speak whispers</b> – off = silent mode, read whispers on screen.</li><li><b>Model / Voice</b> – default grok-4.20-non-reasoning (fastest) and ara.</li></ul></section>
 <section><h2>Privacy</h2><ul>
 <li><b>No audio is ever saved</b> – not on the phone, not on PC01. Sound is held in memory for one sentence, transcribed, and thrown away.</li>
-<li>Only text (transcript + whispers, timestamped) is stored, on <b>your own PC01</b> server, with automatic backups. Review it in <b>Review history</b>, export it as JSON.</li>
-<li>No API keys are inside the app. Each phone has its own revocable token.</li>
+<li>Only text (transcript + whispers, timestamped) is stored, <b>on your phone</b>. Review it in <b>Review history</b>, export it as JSON. Optional text backup to your PC01.</li>
+<li>No API keys are inside the app – you enter your own, it stays encrypted on the phone. Audio is sent to xAI only to transcribe it.</li>
 <li>Tell people when you are using an AI assistant where the law or courtesy requires it.</li></ul></section>
 <section><h2>Troubleshooting</h2><ul>
-<li><b>“Not connected”</b> – check the Server URL and that PC01 is on; re-pair if you revoked the phone.</li>
+<li><b>“Key test failed”</b> – check the key, internet, and that your xAI plan has credit and voice access.</li>
 <li><b>Status shows “Phone (no earbuds)”</b> – reconnect the earbuds in Bluetooth settings and make sure “Calls” audio is on; the app picks them up automatically.</li>
 <li><b>Meters move but nothing is transcribed</b> – raise Mic sensitivity; speak within 1 m of the phone.</li>
 <li><b>Whispers too loud / others hear them</b> – lower Whisper volume; use one earbud.</li>
 <li><b>It stops when the screen is off</b> – set Battery to Unrestricted (step 1.3).</li>
 <li><b>Hears its own whisper</b> – it ignores echoes automatically; if it still repeats, lower the volume.</li>
-<li>Offline? Text is queued on the phone and uploaded when back online (no whispers while offline).</li></ul></section>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.1 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+<li>No internet = no whispers (xAI is in the cloud); history stays on the phone.</li></ul></section>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.2 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>

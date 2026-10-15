@@ -4,18 +4,21 @@ Earbud AI companion by Neuereatec. Listens through your Bluetooth earbud (SCO) a
 
 **Download:** https://bbscalton.github.io/javis-whisper/
 
-## Architecture
+## Architecture (v0.1.2 – phone calls xAI directly)
 ```
-Earbud mic (SCO, "Me") ─┐                       ┌─ PC01 Docker: javis-whisper (Node + SQLite)
-Phone mic ("Them") ─────┤ VAD → utterance PCM ──► /api/stt   → Google Speech (server-side key, audio never stored)
-                        │      transcript ──────► /api/whisper → Grok (streamed) → stored text
-Earbud ◄── Android TTS ◄┘  ◄──── whisper text ──┘  sessions/turns/summaries/learned-notes in C:\javis-whisper\data
+Earbud mic (SCO, "Me") ─┐  on-phone VAD (500 ms)     wss://api.x.ai/v1/stt   (audio streamed while they talk)
+Phone mic ("Them") ─────┘ ───────────────────────────► transcript ─► Grok grok-4.20-non-reasoning (stream)
+Earbud ◄─ AudioTrack ◄── PCM 16 kHz ◄── wss://api.x.ai/v1/tts voice=ara (fed token by token, socket kept warm)
+Room DB on phone: sessions, turns, summaries, learned note  ──(optional, off)──► PC01 server sync
 ```
-* **No API keys in the APK or this repo.** The server reads them read-only from files on PC01. Each phone pairs with a 6‑digit code and gets its own revocable token (stored in EncryptedSharedPreferences).
-* **Text only.** Audio stays in RAM for one utterance, is sent for STT and discarded. The phone keeps only a small offline upload queue.
-* **Learning loop:** at session end the server summarises the session and updates a compact "what helps Calton" note; the last 8 summaries + the note go into every system prompt.
-* **Modes:** Coach (corrections / background / talking points), Translate (auto-detect up to 3 languages → English whisper + suggested reply in their language), Street (brief answers to passers-by).
-* **Multi-speaker (best effort, v1):** turns labelled Me/Them by which mic hears them louder. True diarization is v2.
+* **No keys in the APK or repo.** The user enters the xAI key in Settings (EncryptedSharedPreferences).
+* **Text only** stored (Room, on the phone). Audio exists only in RAM / in flight to xAI STT.
+* **Persona:** javis – warm, sharp, concise, plain words, leads with the answer, one sentence ≤15 words, says `SKIP` (silence) when nothing useful.
+* **Learning loop:** at STOP the phone asks Grok for a 3‑sentence summary and updates a short "what helps Calton" note; the note + last 8 summaries go into the system prompt.
+* **Modes:** Coach, Translate (xAI STT auto-language → English meaning + reply in their language), Street.
+* **Multi-speaker (best effort):** Me/Them by which mic has the higher SNR during the utterance. Diarization is v2.
 
-## Server
+Measured latency, end of speech → first Ara audio (pipeline replayed from PC01 against xAI, same endpoints/params as the app): ~2.0–2.3 s (v0.1.1: ~6 s).
+
+## Server (optional backup sync, v0.1.1 path)
 `server/` – `docker compose up -d --build` on PC01. Public API: https://whisper.neuereatec.org (Cloudflare tunnel → localhost:3120; `/`, `/health`, token-protected `/api/*`, and key-protected `/admin` (401 on wrong key, 10 failed tries per IP or 30 in total per 15 min → 429). Admin page: `https://whisper.neuereatec.org/admin?k=<C:\javis-whisper\data\admin_token.txt>` (pairing codes, device list, revoke, export). Backups every 6 h to `data/backups` (14 kept) and `data/exports/javis-whisper-latest.json`.

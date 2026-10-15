@@ -5,111 +5,96 @@ import android.content.*;
 import android.content.pm.ServiceInfo;
 import android.media.*;
 import android.os.*;
-import android.speech.tts.TextToSpeech;
-import android.speech.tts.UtteranceProgressListener;
-import android.util.Base64;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * Wearable pipeline, runs as a microphone foreground service:
- * earbud mic (Bluetooth SCO) [+ optional phone mic] -> VAD -> PC01 server STT -> Grok whisper (streamed) -> TTS into the earbud.
- * Capture never stops while whispering (full duplex); our own TTS is rejected by echo matching.
- * Audio lives only in RAM for the length of one utterance; it is never written to disk.
+ * Wearable pipeline (v0.1.2, phone talks to xAI directly):
+ * earbud mic (SCO) + phone mic -> on-phone VAD -> xAI streaming STT (audio streamed WHILE the person talks)
+ * -> Grok streaming -> xAI streaming TTS (voice Ara) fed token by token -> AudioTrack into the earbud.
+ * Capture never pauses (full duplex); our own voice is rejected by echo matching. Audio is never written anywhere.
  */
 public class WhisperService extends Service {
   public static final String ACTION_START = "start", ACTION_STOP = "stop";
   static final int SR = 16000, FRAME = 320; // 20 ms
-  // live state read by the UI
   public static volatile boolean running; public static volatile float levelMe, levelThem, thrMe, thrThem;
-  public static volatile String status = "Stopped", route = "-"; public static volatile long sessionStart;
+  public static volatile String status = "Stopped", route = "-", lastTiming = ""; public static volatile long sessionStart;
   static final LinkedList<String> LOG = new LinkedList<>();
   static final float[] SENS_MIN = {900, 450, 220}, SENS_MARGIN = {3.2f, 2.4f, 1.8f};
   static final String[] SENS_NAME = {"Low", "Normal", "High"};
+  static final int END_SILENCE_FRAMES = 25; // 500 ms pause ends an utterance
 
   public static void log(String s) {
     String line = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + s;
-    synchronized (LOG) { LOG.addFirst(line); while (LOG.size() > 200) LOG.removeLast(); }
+    synchronized (LOG) { LOG.addFirst(line); while (LOG.size() > 250) LOG.removeLast(); }
     android.util.Log.i("JavisWhisper", s);
   }
   public static List<String> logSnapshot() { synchronized (LOG) { return new ArrayList<>(LOG); } }
 
-  class Chan {
-    final String label; final boolean earbud; volatile AudioRecord rec; Thread th;
-    volatile long lastRead; volatile String restart; float noise = 150;
-    Chan(String l, boolean e) { label = l; earbud = e; }
-  }
-  static class Utt { Chan ch; byte[] pcm; long start, end; float snr; boolean duringTts; boolean dropped; }
+  class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr;
+    Chan(String l, boolean e) { label = l; earbud = e; } }
+  /** One utterance at a time across both mics: the mic that hears speech first streams it; speaker = mic with higher SNR. */
+  class Utt { int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n; boolean duringTts; }
 
-  AudioManager am; TextToSpeech tts; volatile boolean ttsReady; Api api; PowerManager.WakeLock wl;
-  Chan me, them; boolean dual; int sens; String mode, prebrief, sessionId;
-  final ExecutorService proc = Executors.newSingleThreadExecutor(), net = Executors.newSingleThreadExecutor();
+  AudioManager am; Xai xai; Xai.Tts tts; PowerManager.WakeLock wl; Db db; Db.Session sess;
+  Chan me, them; boolean dual; int sens; String mode, prebrief, model;
+  volatile Utt cur; final Object uttLock = new Object();
+  final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
-  final List<Utt> recent = Collections.synchronizedList(new ArrayList<>());
-  volatile long speakingUntil; volatile String lastWhisper = ""; volatile long lastWhisperAt;
-  AudioDeviceCallback devCb;
+  final LinkedList<JSONObject> ctx = new LinkedList<>();
+  volatile long playingUntil; volatile String lastWhisper = ""; volatile long lastWhisperAt;
+  AudioTrack track; AudioDeviceCallback devCb;
 
   @Override public IBinder onBind(Intent i) { return null; }
-
-  @Override public void onCreate() {
-    super.onCreate(); am = getSystemService(AudioManager.class); api = new Api(this);
-    tts = new TextToSpeech(this, st -> {
-      ttsReady = st == TextToSpeech.SUCCESS;
-      if (!ttsReady) { log("TTS init failed"); return; }
-      tts.setLanguage(Locale.US); tts.setSpeechRate(1.15f);
-      tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
-      tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-        public void onStart(String id) { speakingUntil = Long.MAX_VALUE; }
-        public void onDone(String id) { speakingUntil = SystemClock.uptimeMillis() + 400; }
-        public void onError(String id) { speakingUntil = SystemClock.uptimeMillis(); }
-      });
-    });
-  }
+  @Override public void onCreate() { super.onCreate(); am = getSystemService(AudioManager.class); db = Db.get(this); }
 
   @Override public int onStartCommand(Intent i, int flags, int id) {
     String a = i == null ? ACTION_START : i.getAction();
     if (ACTION_STOP.equals(a)) { stopAll(); return START_NOT_STICKY; }
     if (running) return START_STICKY;
-    goForeground("Listening…");
-    running = true; sessionStart = System.currentTimeMillis();
+    goForeground("Listening…"); running = true; sessionStart = System.currentTimeMillis();
     new Thread(this::startAll, "jw-start").start();
     return START_STICKY;
   }
-
   void goForeground(String text) {
     NotificationManager nm = getSystemService(NotificationManager.class);
     nm.createNotificationChannel(new NotificationChannel("jw", "Javis Whisper", NotificationManager.IMPORTANCE_LOW));
     PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
     PendingIntent stop = PendingIntent.getService(this, 1, new Intent(this, WhisperService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE);
-    Notification n = new Notification.Builder(this, "jw").setSmallIcon(android.R.drawable.ic_btn_speak_now)
-      .setContentTitle("Javis Whisper").setContentText(text).setContentIntent(open).setOngoing(true)
-      .addAction(new Notification.Action.Builder(null, "Stop", stop).build()).build();
+    Notification n = new Notification.Builder(this, "jw").setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle("Javis Whisper").setContentText(text)
+      .setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null, "Stop", stop).build()).build();
     if (Build.VERSION.SDK_INT >= 29) startForeground(7, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE); else startForeground(7, n);
   }
 
   void startAll() {
     try {
+      String key = Prefs.s(this, "xai_key", "");
+      if (key.isEmpty()) { log("Enter your xAI API key in Settings first."); status = "No xAI key"; stopAll(); return; }
+      xai = new Xai(key); model = Prefs.s(this, "model", "grok-4.20-non-reasoning");
+      tts = xai.tts(Prefs.s(this, "voice_id", "ara"));
       wl = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jw:listen"); wl.acquire(6 * 3600_000L);
       mode = Prefs.s(this, "mode", "coach"); prebrief = Prefs.s(this, "prebrief", "");
       dual = "1".equals(Prefs.s(this, "dual", "1")); sens = Integer.parseInt(Prefs.s(this, "sens", "1"));
-      sessionId = UUID.randomUUID().toString();
-      JSONObject s = new JSONObject().put("type", "session").put("clientId", sessionId).put("mode", mode).put("prebrief", prebrief).put("started", iso(System.currentTimeMillis()));
-      enqueue(s); flushQueue();
-      log("Session started · mode " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (dual ? "earbud + phone mic" : "earbud mic only"));
+      sess = new Db.Session(); sess.started = System.currentTimeMillis(); sess.mode = mode; sess.prebrief = prebrief; sess.id = db.d().add(sess);
+      log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
       startBt();
+      int min = AudioTrack.getMinBufferSize(SR, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
+      track = new AudioTrack.Builder().setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+        .setAudioFormat(new AudioFormat.Builder().setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+        .setBufferSizeInBytes(Math.max(min * 2, SR)).setTransferMode(AudioTrack.MODE_STREAM).build();
+      track.play();
       me = new Chan(dual ? "Me" : "Speaker", true); them = dual ? new Chan("Them", false) : null;
       for (Chan c : chans()) { c.restart = "initial open"; c.th = new Thread(() -> readLoop(c), "jw-" + c.label); c.th.start(); }
       devCb = new AudioDeviceCallback() {
         @Override public void onAudioDevicesAdded(AudioDeviceInfo[] d) { for (AudioDeviceInfo x : d) if (isBt(x.getType()) && x.isSource()) { log("Earbuds connected → reconnecting SCO"); sched.schedule(() -> { restoreSco(); if (me != null) me.restart = "earbuds reconnected"; }, 700, TimeUnit.MILLISECONDS); } }
-        @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] d) { for (AudioDeviceInfo x : d) if (isBt(x.getType()) && x.isSource()) log("Earbuds disconnected – waiting for them to come back"); }
+        @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] d) { for (AudioDeviceInfo x : d) if (isBt(x.getType()) && x.isSource()) log("Earbuds disconnected – waiting for them"); }
       };
       am.registerAudioDeviceCallback(devCb, new Handler(Looper.getMainLooper()));
       sched.scheduleWithFixedDelay(this::watchdog, 2, 2, TimeUnit.SECONDS);
-      sched.scheduleWithFixedDelay(() -> net.execute(this::flushQueue), 30, 30, TimeUnit.SECONDS);
+      sched.scheduleWithFixedDelay(() -> { if (tts != null) tts.ensure(); }, 5, 20, TimeUnit.SECONDS); // keep the TTS socket warm
       status = "Listening";
     } catch (Throwable t) { log("Start failed: " + t); status = "Error: " + t.getMessage(); }
   }
@@ -121,15 +106,16 @@ public class WhisperService extends Service {
       try { if (devCb != null) am.unregisterAudioDeviceCallback(devCb); } catch (Throwable ignored) {}
       sched.shutdownNow();
       if (me != null) for (Chan c : chans()) { try { c.rec.stop(); } catch (Throwable ignored) {} try { if (c.th != null) c.th.join(1500); } catch (Throwable ignored) {} try { c.rec.release(); } catch (Throwable ignored) {} }
+      try { proc.shutdown(); proc.awaitTermination(8, TimeUnit.SECONDS); } catch (Throwable ignored) {}
+      try { if (track != null) { track.stop(); track.release(); } } catch (Throwable ignored) {}
+      if (tts != null) tts.close();
       stopBt();
-      if (sessionId != null) { try { enqueue(new JSONObject().put("type", "end").put("clientId", sessionId)); } catch (Exception ignored) {} net.execute(this::flushQueue); }
-      try { net.shutdown(); net.awaitTermination(25, TimeUnit.SECONDS); } catch (Throwable ignored) {}
+      if (sess != null) { sess.ended = System.currentTimeMillis(); db.d().update(sess); try { Learn.endSession(this, xai, model, sess); } catch (Throwable t) { log("Summary failed: " + t.getMessage()); } }
       try { if (wl != null && wl.isHeld()) wl.release(); } catch (Throwable ignored) {}
       levelMe = levelThem = 0; status = "Stopped"; route = "-"; log("Session stopped");
       stopForeground(STOP_FOREGROUND_REMOVE); stopSelf();
     }).start();
   }
-  @Override public void onDestroy() { running = false; if (tts != null) tts.shutdown(); super.onDestroy(); }
 
   // ---------------- Bluetooth SCO (from Neuereatec Translator, incl. keep-listening fix) ----------------
   static boolean isBt(int t) { return t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || t == AudioDeviceInfo.TYPE_BLE_HEADSET; }
@@ -195,11 +181,11 @@ public class WhisperService extends Service {
   // ---------------- capture + VAD (never pauses while whispering) ----------------
   void readLoop(Chan c) {
     try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Throwable ignored) {}
-    short[] f = new short[FRAME]; ArrayDeque<short[]> pre = new ArrayDeque<>();
-    ByteArrayOutputStream utt = null; int voicedRun = 0, silence = 0, voiced = 0, frames = 0; double sum = 0; long uttStart = 0; boolean tts = false;
+    short[] f = new short[FRAME]; ArrayDeque<byte[]> pre = new ArrayDeque<>();
+    int voicedRun = 0, silence = 0, voiced = 0, frames = 0; long silenceStart = 0;
     while (running) {
       if (c.restart != null) {
-        log(c.label + " mic (re)open: " + c.restart); utt = null; pre.clear();
+        log(c.label + " mic (re)open: " + c.restart); pre.clear();
         try { if (c.rec != null) { c.rec.stop(); c.rec.release(); } } catch (Throwable ignored) {}
         c.rec = makeRec(c); c.lastRead = SystemClock.uptimeMillis();
         if (c.rec == null) { SystemClock.sleep(1500); continue; }
@@ -210,95 +196,104 @@ public class WhisperService extends Service {
       c.lastRead = SystemClock.uptimeMillis();
       if (got <= 0) { SystemClock.sleep(20); continue; }
       double s = 0; for (int i = 0; i < got; i++) s += (double) f[i] * f[i]; float rms = (float) Math.sqrt(s / got);
-      int sv = sens; float thr = Math.max(SENS_MIN[sv], c.noise * SENS_MARGIN[sv]);
+      float thr = Math.max(SENS_MIN[sens], c.noise * SENS_MARGIN[sens]); c.snr = rms / Math.max(c.noise, 1);
       if (c == me) { levelMe = rms; thrMe = thr; } else { levelThem = rms; thrThem = thr; }
-      boolean v = rms > thr;
-      if (utt == null) {
+      boolean v = rms > thr; byte[] pcm = bytes(f, got);
+      Utt u = cur;
+      if (u != null) { // an utterance is open: track SNR of both mics for the speaker label
+        if (c == me) { u.snrMe += c.snr; u.n++; } else u.snrThem += c.snr;
+        if (playingUntil > SystemClock.uptimeMillis()) u.duringTts = true;
+      }
+      if (u == null || u.owner != c) {
         c.noise = c.noise * 0.995f + Math.min(rms, c.noise * 3) * 0.005f; if (c.noise < 40) c.noise = 40;
-        pre.addLast(Arrays.copyOf(f, got)); if (pre.size() > 15) pre.removeFirst();
+        pre.addLast(pcm); if (pre.size() > 15) pre.removeFirst();
         voicedRun = v ? voicedRun + 1 : 0;
-        if (voicedRun >= 3) { utt = new ByteArrayOutputStream(); for (short[] p : pre) write(utt, p); pre.clear(); uttStart = System.currentTimeMillis() - 300; silence = 0; voiced = 3; frames = 0; sum = 0; tts = SystemClock.uptimeMillis() < speakingUntil; }
-      } else {
-        write(utt, Arrays.copyOf(f, got)); frames++; sum += rms / Math.max(c.noise, 1);
-        if (SystemClock.uptimeMillis() < speakingUntil) tts = true;
-        if (v) { voiced++; silence = 0; } else silence++;
-        if (silence > 35 || frames > 600) { // 700 ms pause or 12 s max
-          if (voiced >= 12) { Utt u = new Utt(); u.ch = c; u.pcm = utt.toByteArray(); u.start = uttStart; u.end = System.currentTimeMillis(); u.snr = (float) (sum / Math.max(frames, 1)); u.duringTts = tts; submit(u); }
-          utt = null; voicedRun = 0;
+        if (voicedRun >= 3 && u == null && xai != null) {
+          synchronized (uttLock) { if (cur == null) {
+            Utt n = new Utt(); n.owner = c; n.startWall = System.currentTimeMillis() - 300; n.duringTts = playingUntil > SystemClock.uptimeMillis();
+            n.stt = xai.stt("translate".equals(mode) ? "" : "en"); for (byte[] p : pre) n.stt.push(p); pre.clear(); cur = n; silence = 0; voiced = 3; frames = 0;
+          } }
+        }
+      } else { // this mic owns the open utterance: stream its audio to xAI STT live
+        u.stt.push(pcm); frames++;
+        if (v) { voiced++; silence = 0; } else if (silence++ == 0) silenceStart = SystemClock.uptimeMillis();
+        // end on 500 ms pause, or after 300 ms if xAI STT already finalised the phrase (saves ~200-400 ms)
+        if (silence >= END_SILENCE_FRAMES || (silence >= 15 && u.stt.finalSince(silenceStart)) || frames > 750) {
+          u.vadMs = silence * 20;
+          synchronized (uttLock) { cur = null; }
+          u.endUp = SystemClock.uptimeMillis(); u.stt.end(); voicedRun = 0;
+          if (voiced >= 12) proc.execute(() -> process(u)); else u.stt.cancel();
         }
       }
     }
   }
-  static void write(ByteArrayOutputStream o, short[] p) { for (short x : p) { o.write(x & 0xff); o.write((x >> 8) & 0xff); } }
-
-  void submit(Utt u) {
-    recent.add(u); synchronized (recent) { recent.removeIf(x -> x.end < System.currentTimeMillis() - 15000); }
-    sched.schedule(() -> proc.execute(() -> process(u)), dual ? 350 : 0, TimeUnit.MILLISECONDS);
-  }
-
-  /** Multi-speaker (best effort): with two mics the same speech is heard on both; keep the copy with the better signal-to-noise. */
-  boolean duplicateOfLouder(Utt u) {
-    synchronized (recent) {
-      for (Utt o : recent) {
-        if (o == u || o.ch == u.ch || o.dropped) continue;
-        long ov = Math.min(o.end, u.end) - Math.max(o.start, u.start);
-        if (ov > 0.5 * Math.min(o.end - o.start, u.end - u.start) && o.snr > u.snr) return true;
-      }
-    }
-    return false;
-  }
+  static byte[] bytes(short[] p, int n) { byte[] b = new byte[n * 2]; for (int i = 0; i < n; i++) { b[2 * i] = (byte) p[i]; b[2 * i + 1] = (byte) (p[i] >> 8); } return b; }
 
   void process(Utt u) {
-    if (!running && sessionId == null) return;
     try {
-      if (dual && duplicateOfLouder(u)) { u.dropped = true; u.pcm = null; return; }
       mode = Prefs.s(this, "mode", mode); sens = Integer.parseInt(Prefs.s(this, "sens", "1"));
-      boolean tr = "translate".equals(mode);
-      JSONObject req = new JSONObject().put("audio", Base64.encodeToString(u.pcm, Base64.NO_WRAP)).put("lang", "en-US");
-      if (tr) req.put("alt", new JSONArray(Arrays.asList(Prefs.s(this, "langs", "es-ES,pt-BR,fr-FR").split("\\s*,\\s*"))));
-      u.pcm = null; // drop audio from memory as soon as it is sent
       status = "Transcribing…";
-      JSONObject r = api.call("/api/stt", req);
-      String text = r.optString("text").trim(), lang = r.optString("lang", "en-us");
+      String text = u.stt.result(2500); long tText = SystemClock.uptimeMillis();
       status = "Listening";
-      if (text.isEmpty()) return;
-      if ((u.duringTts || u.start < lastWhisperAt + 4000) && echoOf(text, lastWhisper)) { log("(ignored own whisper echo: " + text + ")"); return; }
-      String spk = u.ch.label;
-      log(spk + (lang.startsWith("en") ? "" : " [" + lang + "]") + ": " + text);
-      JSONObject heard = new JSONObject().put("clientId", UUID.randomUUID().toString()).put("sessionId", sessionId).put("ts", iso(u.start)).put("speaker", spk).put("lang", lang).put("text", text);
-      boolean ask;
-      if (tr) ask = !lang.toLowerCase(Locale.US).startsWith("en");
-      else ask = !"Me".equals(spk);
-      if (!ask) { enqueue(heard.put("type", "turn")); net.execute(this::flushQueue); return; }
-      whisper(heard);
-    } catch (Exception e) { status = "Listening"; log("STT failed: " + e.getMessage()); }
+      if (text == null || text.isEmpty()) { if (u.stt.error != null) log("STT: " + u.stt.error); return; }
+      if ((u.duringTts || System.currentTimeMillis() < lastWhisperAt + 4000) && echoOf(text, lastWhisper)) { log("(ignored own whisper echo)"); return; }
+      String spk = !dual ? "Speaker" : (u.n > 0 && u.snrMe >= u.snrThem * 1.15 ? "Me" : "Them");
+      boolean english = isEnglishish(text);
+      log(spk + ": " + text);
+      saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
+      addCtx("user", "[" + spk + "] " + text);
+      boolean ask = "translate".equals(mode) ? !english : (!dual || "Me".equals(spk) == false);
+      if (!ask) return;
+      whisper(u, tText);
+    } catch (Throwable e) { status = "Listening"; log("Pipeline error: " + e.getMessage()); }
   }
 
-  void whisper(JSONObject heard) {
-    flushQueue();
-    StringBuilder pending = new StringBuilder();
-    try {
-      status = "Thinking…";
-      String all = api.stream("/api/whisper", new JSONObject().put("sessionId", sessionId).put("mode", mode).put("heard", heard), t -> {
-        pending.append(t); int cut = lastBoundary(pending);
-        if (cut > 12) { String seg = pending.substring(0, cut); pending.delete(0, cut); speak(seg); }
-      });
-      if (pending.length() > 0) speak(pending.toString());
-      status = "Listening";
-      if (!all.isEmpty() && !all.equals("-")) { lastWhisper = all; lastWhisperAt = System.currentTimeMillis(); log("🗣 Javis: " + all); }
-    } catch (Exception e) {
-      status = "Listening"; log("Whisper failed (" + e.getMessage() + ") – saved for upload");
-      try { enqueue(heard.put("type", "turn")); } catch (Exception ignored) {}
-    }
+  void whisper(Utt u, long tText) throws Exception {
+    status = "Thinking…";
+    final long[] tFirstTok = {0}, tFirstAudio = {0}; final StringBuilder held = new StringBuilder(); final boolean[] live = {false};
+    boolean voice = !"0".equals(Prefs.s(this, "voice", "1"));
+    final float vol = Float.parseFloat(Prefs.s(this, "vol", "0.35"));
+    if (voice) tts.begin(new Xai.Audio() {
+      public void on(byte[] pcm) { if (tFirstAudio[0] == 0) tFirstAudio[0] = SystemClock.uptimeMillis(); play(pcm, vol); }
+      public void done() {}
+    });
+    JSONArray msgs = new JSONArray().put(new JSONObject().put("role", "system").put("content", Learn.systemPrompt(this, sess, mode)));
+    synchronized (ctx) { for (JSONObject o : ctx) msgs.put(o); }
+    String all = xai.chat(model, msgs, 60, 0.6, t -> {
+      if (tFirstTok[0] == 0) tFirstTok[0] = SystemClock.uptimeMillis();
+      if (!voice) return;
+      if (!live[0]) { held.append(t); String h = held.toString().trim();
+        if (h.length() >= 5 && !"SKIP".startsWith(h.toUpperCase(Locale.US).substring(0, Math.min(4, h.length())))) { live[0] = true; tts.text(clean(held.toString())); } }
+      else tts.text(clean(t));
+    });
+    if (voice && live[0]) tts.finish();
+    else if (voice && !isSkip(all) && !all.isEmpty()) { live[0] = true; tts.text(clean(all)); tts.finish(); }
+    status = "Listening";
+    if (isSkip(all) || all.isEmpty()) { log("(javis stayed quiet)"); timing(u, tText, tFirstTok[0], 0); return; }
+    lastWhisper = all; lastWhisperAt = System.currentTimeMillis();
+    log("🗣 javis: " + all); saveTurn("whisper", "javis", "", all, System.currentTimeMillis()); addCtx("assistant", all);
+    if (voice) { long w = SystemClock.uptimeMillis() + 3000; while (tFirstAudio[0] == 0 && SystemClock.uptimeMillis() < w) SystemClock.sleep(20); }
+    timing(u, tText, tFirstTok[0], tFirstAudio[0]);
   }
-  static int lastBoundary(StringBuilder b) { int k = -1; for (int i = 0; i < b.length(); i++) { char ch = b.charAt(i); if (ch == '.' || ch == '!' || ch == '?' || ch == '|' || ch == ';') k = i + 1; } return k; }
-  void speak(String seg) {
-    seg = seg.replace("||", ". ").replaceAll("[*_#`]", "").trim();
-    if (seg.isEmpty() || seg.equals("-") || !ttsReady || "0".equals(Prefs.s(this, "voice", "1"))) return;
-    Bundle p = new Bundle(); p.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, Float.parseFloat(Prefs.s(this, "vol", "0.35")));
-    speakingUntil = Long.MAX_VALUE;
-    tts.speak(seg, TextToSpeech.QUEUE_ADD, p, UUID.randomUUID().toString());
+  void timing(Utt u, long tText, long tTok, long tAudio) {
+    int v = u.vadMs;
+    String s = String.format(Locale.US, "⏱ after they stopped: VAD %d · text %d · 1st word %d · voice %s ms", v,
+      tText - u.endUp + v, tTok == 0 ? -1 : tTok - u.endUp + v, tAudio == 0 ? "-" : String.valueOf(tAudio - u.endUp + v));
+    lastTiming = s; log(s);
   }
+  static String clean(String t) { return t.replace("||", ". ").replace("|", ",").replaceAll("[*_#`\"]", ""); }
+  static boolean isSkip(String t) { return t == null || t.trim().matches("(?i)^(SKIP|-)\\W*$"); }
+  static boolean isEnglishish(String t) { // xAI STT doesn't return a language; cheap heuristic for translate mode
+    String[] w = t.toLowerCase(Locale.US).replaceAll("[^a-z' ]", " ").trim().split("\\s+"); if (w.length == 0) return true;
+    Set<String> en = new HashSet<>(Arrays.asList("the","a","and","is","are","you","i","to","it","what","of","in","that","this","for","my","me","we","do","have","yes","no","can","how","where","your","be","was","on","with","not","okay","ok","so","just","like","know"));
+    int hit = 0; for (String x : w) if (en.contains(x)) hit++; return hit * 4 >= w.length || t.matches(".*[a-zA-Z].*") && w.length <= 2 && hit > 0;
+  }
+  void play(byte[] pcm, float vol) {
+    try { track.setVolume(vol); track.write(pcm, 0, pcm.length);
+      long now = SystemClock.uptimeMillis(); playingUntil = Math.max(playingUntil, now) + pcm.length / 32 + 300; } catch (Throwable ignored) {}
+  }
+  void addCtx(String role, String content) { try { synchronized (ctx) { ctx.add(new JSONObject().put("role", role).put("content", content)); while (ctx.size() > 30) ctx.removeFirst(); } } catch (Exception ignored) {} }
+  void saveTurn(String kind, String spk, String lang, String text, long ts) { Db.Turn t = new Db.Turn(); t.sessionId = sess.id; t.kind = kind; t.speaker = spk; t.lang = lang; t.text = text; t.ts = ts; db.d().add(t); }
   /** Echo handling: the earbud mic can pick up our own whisper. Reject transcripts that mostly repeat it. */
   static boolean echoOf(String heard, String whisper) {
     if (whisper == null || whisper.isEmpty()) return false;
@@ -307,26 +302,4 @@ public class WhisperService extends Service {
     int hit = 0; for (String x : h) if (w.contains(x)) hit++;
     return h.length > 0 && hit >= Math.max(2, h.length * 0.6);
   }
-
-  // ---------------- small offline queue (text only), flushed to PC01 ----------------
-  File qf() { return new File(getFilesDir(), "upload-queue.jsonl"); }
-  synchronized void enqueue(JSONObject o) { try (FileWriter w = new FileWriter(qf(), true)) { w.write(o.toString() + "\n"); } catch (IOException e) { log("queue write failed " + e); } }
-  synchronized void flushQueue() {
-    File f = qf(); if (!f.exists() || Prefs.token(this).isEmpty()) return;
-    List<String> lines = new ArrayList<>();
-    try (BufferedReader r = new BufferedReader(new FileReader(f))) { String l; while ((l = r.readLine()) != null) if (!l.trim().isEmpty()) lines.add(l); } catch (IOException e) { return; }
-    int done = 0;
-    try {
-      for (String l : lines) {
-        JSONObject o = new JSONObject(l); String t = o.optString("type");
-        if (t.equals("session")) api.call("/api/session", o);
-        else if (t.equals("turn")) api.call("/api/turns", new JSONObject().put("turns", new JSONArray().put(o)));
-        else if (t.equals("end")) { JSONObject r = api.call("/api/session/" + o.getString("clientId") + "/end", new JSONObject()); log("Session summary saved on PC01: " + r.optString("summary")); }
-        done++;
-      }
-    } catch (Exception e) { if (done == 0) log("Offline – " + lines.size() + " item(s) queued (" + e.getMessage() + ")"); }
-    try (FileWriter w = new FileWriter(f, false)) { for (int i = done; i < lines.size(); i++) w.write(lines.get(i) + "\n"); } catch (IOException ignored) {}
-  }
-  public static int queued(Context c) { File f = new File(c.getFilesDir(), "upload-queue.jsonl"); if (!f.exists()) return 0; int n = 0; try (BufferedReader r = new BufferedReader(new FileReader(f))) { while (r.readLine() != null) n++; } catch (IOException ignored) {} return n; }
-  static String iso(long ms) { SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US); return f.format(new Date(ms)); }
 }
