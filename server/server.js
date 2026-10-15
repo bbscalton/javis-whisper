@@ -35,7 +35,8 @@ function auth(req) {
   const d = db.prepare('SELECT * FROM devices WHERE token_hash=? AND revoked=0').get(sha(t));
   if (d) db.prepare('UPDATE devices SET last_seen=? WHERE id=?').run(now(), d.id); return d;
 }
-const isAdmin = (req, u) => { const k = u.searchParams.get('k') || req.headers['x-admin-token'] || ''; return k.length === ADMIN.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(ADMIN)); };
+const FAILS = new Map();
+const isAdmin = (req, u) => { const k = String(u.searchParams.get('k') || req.headers['x-admin-token'] || ''); return crypto.timingSafeEqual(crypto.createHash('sha256').update(k).digest(), crypto.createHash('sha256').update(ADMIN).digest()); };
 
 // ---------- Grok ----------
 const MODES = {
@@ -121,8 +122,10 @@ http.createServer(async (req, res) => {
     if (p === '/' || p === '/index.html') return send(res, 200, INDEX, 'text/html; charset=utf-8');
     if (p === '/health') return send(res, 200, { ok: true, xai: !!XAI, google: !!GKEY, model: MODEL });
     if (p.startsWith('/admin')) {
-      if (req.headers['cf-connecting-ip'] || req.headers['cf-ray']) return send(res, 404, { error: 'not found' }); // admin is LAN/localhost only, never via the tunnel
-      if (!isAdmin(req, u)) return send(res, 403, { error: 'admin token required' });
+      const ip = String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?');
+      const f = (FAILS.get(ip) || []).filter(t => t > Date.now() - 15 * 60e3);
+      if (f.length >= 10) { FAILS.set(ip, f); return send(res, 429, { error: 'too many failed attempts, try again later' }); }
+      if (!isAdmin(req, u)) { f.push(Date.now()); FAILS.set(ip, f); log('admin auth fail', ip); return send(res, 401, { error: 'admin key required' }); }
       const k = encodeURIComponent(u.searchParams.get('k') || '');
       if (p === '/admin/code' && req.method === 'POST') { const code = String(crypto.randomInt(100000, 999999)); db.prepare('INSERT OR REPLACE INTO codes VALUES(?,?)').run(code, Date.now() + 600e3); return send(res, 200, adminHtml(k, `<p>Enter this code in the app (Settings → Pair):</p><div class=code>${code}</div>`), 'text/html'); }
       if (p === '/admin/revoke' && req.method === 'POST') { db.prepare('UPDATE devices SET revoked=1 WHERE id=?').run(+u.searchParams.get('id')); return send(res, 200, adminHtml(k, '<p>Device revoked.</p>'), 'text/html'); }
