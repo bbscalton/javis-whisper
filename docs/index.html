@@ -14,7 +14,7 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 
 .hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:28px;max-width:900px;margin:auto}
 .hero .txt{flex:1 1 320px;text-align:left}.hero h1{font-size:44px}.hero .lead{color:#dce8f7;font-size:19px;margin:10px 0 18px}
-.art{flex:0 0 260px;height:260px;position:relative}
+.art{flex:0 0 300px}.art img{width:100%;height:auto}
 .rip{fill:none;stroke:#7cc4ff;stroke-width:3;opacity:0;transform-origin:150px 128px;animation:rip 2.4s ease-out infinite}
 .rip.r2{animation-delay:.8s}.rip.r3{animation-delay:1.6s}
 @keyframes rip{0%{opacity:.9;transform:scale(1.6)}100%{opacity:0;transform:scale(.35)}}
@@ -29,20 +29,32 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 .ver a.btn{font-size:16px;padding:10px 16px;margin-top:8px}
 .tabs{display:flex;gap:8px;margin:26px 0 0}.tabs a{flex:1;text-align:center;padding:12px;border-radius:12px 12px 0 0;background:#0e2546;color:#9fb3cf;text-decoration:none;font-weight:600}
 .tabs a.on{background:#132f57;color:#fff}.tab{display:none}.tab.on{display:block}.tab>section:first-child{margin-top:0;border-top-left-radius:0;border-top-right-radius:0}
+.flow{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.step{flex:1 1 150px;text-align:center;background:#0e2546;border-radius:14px;padding:14px;animation:hl 6s infinite}
+.step:nth-child(3){animation-delay:2s}.step:nth-child(5){animation-delay:4s}.arr{color:#7cc4ff;font-size:26px}
+@keyframes hl{0%,30%{box-shadow:0 0 0 2px #7cc4ff,0 0 24px #7cc4ff66}34%,100%{box-shadow:none}}
+.wave rect{fill:#9fe0ff;animation:wv 1s ease-in-out infinite;transform-origin:center;transform-box:fill-box}.wave rect:nth-child(2){animation-delay:.15s}.wave rect:nth-child(3){animation-delay:.3s}.wave rect:nth-child(4){animation-delay:.45s}.wave rect:nth-child(5){animation-delay:.6s}
+@keyframes wv{50%{transform:scaleY(.3)}}.dot{animation:dt 1.2s infinite}.dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}@keyframes dt{50%{opacity:.2}}
+.pulse{animation:pl 2s ease-out infinite;transform-origin:center;transform-box:fill-box}@keyframes pl{0%{opacity:.9;transform:scale(.6)}100%{opacity:0;transform:scale(1.6)}}
+.feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px}.feat div{background:#0e2546;border-radius:14px;padding:12px}.feat img{width:100%;height:auto;display:block;margin-bottom:8px}
+@media (prefers-reduced-motion:reduce){.step,.wave rect,.dot,.pulse{animation:none}}
 </style></head><body>
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
 <a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.10/JavisWhisper.apk">⬇ Download 0.1.10</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
-<div class="art" aria-hidden="true"><svg viewBox="0 0 260 260" width="260" height="260">
-<circle cx="130" cy="130" r="122" fill="#132f57"/>
-<path d="M150 46c-40 0-70 30-70 70 0 22 8 34 14 46 4 9 2 22-2 34l-8 24h76l2-22c22-2 34-14 36-30l2-16 14-6-14-30c0-42-20-70-50-70z" fill="#1e4a85"/>
-<path d="M146 112c-7 0-12 6-12 14s5 14 12 14" fill="none" stroke="#0b1e3a" stroke-width="4" stroke-linecap="round"/>
-<circle class="bud" cx="150" cy="128" r="9" fill="#7cc4ff"/>
-<circle class="rip r1" cx="150" cy="128" r="22"/><circle class="rip r2" cx="150" cy="128" r="22"/><circle class="rip r3" cx="150" cy="128" r="22"/>
-</svg></div></div></header>
+<div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
+<section><h2>How Whisper works</h2><div class="flow" aria-label="Hear, then think, then whisper">
+<div class="step"><svg viewBox="0 0 100 60" width="100" height="60" class="wave" aria-hidden="true"><rect x="15" y="10" width="8" height="40" rx="4"/><rect x="31" y="5" width="8" height="50" rx="4"/><rect x="47" y="15" width="8" height="30" rx="4"/><rect x="63" y="5" width="8" height="50" rx="4"/><rect x="79" y="12" width="8" height="36" rx="4"/></svg><br><b>Hears</b><br><span class="small">Listens to the whole conversation</span></div><span class="arr">→</span>
+<div class="step"><svg viewBox="0 0 100 60" width="100" height="60" aria-hidden="true"><circle class="dot" cx="30" cy="30" r="8" fill="#7cc4ff"/><circle class="dot" cx="50" cy="30" r="8" fill="#7cc4ff"/><circle class="dot" cx="70" cy="30" r="8" fill="#7cc4ff"/></svg><br><b>Thinks</b><br><span class="small">Gets the topic, then decides: stay quiet or help</span></div><span class="arr">→</span>
+<div class="step"><svg viewBox="0 0 100 60" width="100" height="60" aria-hidden="true"><path d="M62 4c-18 0-30 12-30 28 0 9 3 13 5 17 2 4 1 8-1 11h30l1-8c8-1 13-5 14-11l1-6 5-2-5-11c0-12-8-18-20-18z" fill="#1e4a85"/><circle class="bud" cx="60" cy="30" r="5" fill="#7cc4ff"/><circle class="rip r1" cx="60" cy="30" r="12" style="transform-origin:60px 30px"/><circle class="rip r2" cx="60" cy="30" r="12" style="transform-origin:60px 30px"/><circle class="rip r3" cx="60" cy="30" r="12" style="transform-origin:60px 30px"/></svg><br><b>Whispers</b><br><span class="small">A short tip in Ara’s voice – only you hear it</span></div></div></section>
+<section><h2>What it does</h2><div class="feat">
+<div><img src="img/enroll.svg" alt="Microphone with sound bars" width="320" height="200"><b>Knows your voice</b><br><span class="small">One short enrollment, kept encrypted on your phone.</span></div>
+<div><img src="img/people.svg" alt="Three figures linked by a dotted line" width="320" height="200"><b>Remembers people</b><br><span class="small">Who you talk to and what was promised.</span></div>
+<div><img src="img/language.svg" alt="Two speech bubbles in different languages" width="320" height="200"><b>Language bridge</b><br><span class="small">Helps you understand and answer in another language.</span></div>
+<div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
+<div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
 <div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.10 – knows your voice and your name</h3>One-time voice enrollment (“This is Calton doing the mic test”, kept encrypted on the phone only), hears “Calton” not “Carlton”, no more false “mic is silent” in normal pauses, never invents people from test words, no coaching on mic tests, honest summaries.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.10/JavisWhisper.apk">⬇ Download 0.1.10</a></div>
 </div></section>
