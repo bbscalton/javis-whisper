@@ -11,6 +11,7 @@ function readSecret(file, name) { // file may be raw key or KEY=VALUE env file
 const XAI = readSecret(process.env.XAI_KEY_FILE || '/secrets/xai.env', 'XAI_API_KEY');
 const GKEY = readSecret(process.env.GOOGLE_KEY_FILE || '/secrets/google_key.txt', 'GOOGLE_API_KEY');
 const G_PKG = process.env.GOOGLE_ANDROID_PACKAGE || '', G_CERT = process.env.GOOGLE_ANDROID_CERT || '';
+const INDEX = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 const adminFile = path.join(DATA, 'admin_token.txt');
 if (!fs.existsSync(adminFile)) fs.writeFileSync(adminFile, crypto.randomBytes(18).toString('base64url'));
 const ADMIN = fs.readFileSync(adminFile, 'utf8').trim();
@@ -27,7 +28,7 @@ const sha = s => crypto.createHash('sha256').update(s).digest('hex');
 const kvGet = k => db.prepare('SELECT v FROM kv WHERE k=?').get(k)?.v || '';
 const kvSet = (k, v) => db.prepare('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').run(k, v);
 
-function send(res, code, obj, type = 'application/json') { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' }); res.end(type === 'application/json' ? JSON.stringify(obj) : obj); }
+function send(res, code, obj, type = 'application/json') { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' }); res.end(type.startsWith('application/json') ? JSON.stringify(obj) : obj); }
 function body(req) { return new Promise((ok, no) => { let n = 0; const b = []; req.on('data', c => { n += c.length; if (n > 4e6) { no(new Error('too big')); req.destroy(); } else b.push(c); }); req.on('end', () => { try { ok(b.length ? JSON.parse(Buffer.concat(b)) : {}); } catch (e) { no(e); } }); }); }
 function auth(req) {
   const t = (req.headers.authorization || '').replace(/^Bearer /, ''); if (!t) return null;
@@ -117,6 +118,7 @@ const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x'), p = u.pathname;
   try {
+    if (p === '/' || p === '/index.html') return send(res, 200, INDEX, 'text/html; charset=utf-8');
     if (p === '/health') return send(res, 200, { ok: true, xai: !!XAI, google: !!GKEY, model: MODEL });
     if (p.startsWith('/admin')) {
       if (req.headers['cf-connecting-ip'] || req.headers['cf-ray']) return send(res, 404, { error: 'not found' }); // admin is LAN/localhost only, never via the tunnel
