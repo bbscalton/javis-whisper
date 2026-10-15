@@ -44,6 +44,7 @@ public class SendToPc {
         if (t >= from && t <= to) log.put(Learn.iso(t) + "  " + l.substring(tab + 1)); } }
     String ver = a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionName;
     JSONObject settings = new JSONObject(); for (String k : new String[]{"mode", "model", "voice_id", "sens", "dual", "setting", "vol", "pace", "prox_prof"}) settings.put(k, Prefs.s(a, k, ""));
+    settings.put("voice_enroll", VoiceEnroll.statusLine(a)); // 0.1.10: features/scores only – enrollment audio never leaves the phone
     return new JSONObject().put("app", "Javis Whisper").put("version", ver).put("range", label).put("from", Learn.iso(from)).put("to", Learn.iso(now))
       .put("phone", Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE).put("settings", settings).put("learned", Prefs.s(a, "learned", "")).put("sessions", ss).put("log", log);
   }

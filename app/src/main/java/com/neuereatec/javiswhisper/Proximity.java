@@ -78,6 +78,11 @@ public class Proximity {
     }
     return s / w;
   }
+  /** 0.1.10: blend in the enrolled reference match so Me tagging works from the first line. */
+  public static double nearScore(Context c, Feat f, byte[] pcm) {
+    double base = nearScore(c, f); int n = VoiceEnroll.count(c); if (n == 0) return base;
+    double m = VoiceEnroll.match(c, pcm, f); return 0.6 * base + 0.4 * m;
+  }
   public static String band(double near) { return near >= ME ? "Me" : near <= THEM ? "Them" : "Unsure"; }
 
   /** Passive learning: called for accepted wake-word commands and very confident Me turns; explicit calibration weighs more. */

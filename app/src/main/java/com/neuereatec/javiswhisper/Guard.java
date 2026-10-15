@@ -9,15 +9,31 @@ import java.util.regex.*;
 public class Guard {
   // ---- STT hints (xAI keyterm) ----
   static final String[] KEYTERMS = {"Mounjaro", "Ozempic", "Zepbound", "Wegovy", "semaglutide", "tirzepatide", "cortisone", "insulin", "Georgetown", "Stabroek",
-    "Berbice", "Linden", "Essequibo", "Bartica", "Lethem", "Demerara", "Guyana", "GYD", "Creolese", "Whisper", "Javis"};
+    "Berbice", "Linden", "Essequibo", "Bartica", "Lethem", "Demerara", "Guyana", "GYD", "Creolese", "Whisper", "Javis",
+    "Calton", "Calton Andrew", "Miss Calton", "Mounjaro pen", "GLP-1", "Neuereatec"}; // 0.1.10: Calton (never Carlton)
   // ---- mishear normalisation (seen in Calton's 15 Oct upload) ----
   static final String[][] FIX = {
     {"(?i)\\b(mon ?jaro|mu ?jaro|man ?jaro|moun ?jaro|munjaro|mountain jaro)\\b", "Mounjaro"}, {"(?i)\\bwhat jara\\b", "Mounjaro"}, {"(?i)\\bis that mountain\\b", "is that Mounjaro"},
     {"(?i)\\b(olympic|ozempik|cinemic|osempic)\\b", "Ozempic"}, {"(?i)\\b(zepp? ?bound|zip ?bound)\\b", "Zepbound"},
     {"(?i)\\bmozambique and zimbabwe\\b", "Mounjaro and Zepbound"}, {"(?i)\\b(corazon|cortizone|cortisol shot)\\b", "cortisone"},
-    {"(?i)\\bsema ?glue ?tide\\b", "semaglutide"}, {"(?i)\\btirzepa ?tide\\b", "tirzepatide"}};
+    {"(?i)\\bsema ?glue ?tide\\b", "semaglutide"}, {"(?i)\\btirzepa ?tide\\b", "tirzepatide"},
+    // 0.1.10 from the 15 Oct uploads: more drug-name mishears
+    {"(?i)\\b(mounjar|monjar|mujar|manjar)\\b", "Mounjaro"}, {"(?i)\\bmuj?aro\\b", "Mounjaro"}, {"(?i)\\b(a z word for truth)\\b", "a Z word (Zepbound)"},
+    // 0.1.10 caller name: Calton (never Carlton). Carlton always; carbon only in a clear self-ID line.
+    {"(?i)\\bmiss\\s+carlton\\b", "Miss Calton"}, {"\\bCarlton\\b", "Calton"}, {"\\bcarlton\\b", "Calton"}, {"\\bCARLTON\\b", "Calton"},
+    {"(?i)\\b(this is|it'?s|i'?m|i am|my name is|name'?s|call me|miss|mister|mr\\.?)\\s+carbon\\b", "$1 Calton"},
+    {"(?i)\\bcarbon andrew\\b", "Calton Andrew"}, {"(?i)\\bcarlton andrew\\b", "Calton Andrew"}};
   static String normalize(String t) { String r = t; for (String[] f : FIX) r = r.replaceAll(f[0], f[1]); return r; }
 
+  /** 0.1.10: pure voice/mic-test lines – never coach, never invent people, never put in learned notes. */
+  static final Pattern VOICE_TEST = Pattern.compile("(?i)\\b(testing( my)? (earbuds?|mic|microphone)|mic test|doing the mic test|test(ing)?,? (one|1),? (two|2)|one,? two,? three,? four,? five|can you hear me|learn my voice|how (would|do) you learn my voice|what do i have to say|hi whisper,? how are you|just to my ears|this is calton(,| doing| testing)|mode street|mode coach|mode translate)\\b");
+  static boolean isVoiceTest(String t) { return t != null && VOICE_TEST.matcher(t).find(); }
+  /** session looks like a test if most heard lines are test phrases / fragments */
+  static boolean testSession(List<String> lines) {
+    if (lines == null || lines.isEmpty()) return false; int test = 0, n = 0;
+    for (String l : lines) { if (l == null || l.trim().isEmpty()) continue; n++; if (isVoiceTest(l) || unclear(l) != null) test++; }
+    return n > 0 && (test * 2 >= n || n <= 3 && test >= 1);
+  }
   // ---- lines that came out as another language or as fragments: wait them out, never repeat them ----
   static final Set<String> FOREIGN = new HashSet<>(Arrays.asList("dia", "menjana", "setakat", "mana", "jai", "buddha", "alam", "bikri", "kya", "hai", "nahi", "aur", "saya", "tidak", "anda", "akan", "untuk", "dengan", "yang", "ini", "itu", "ka", "ke", "ki"));
   static final Set<String> EN = new HashSet<>(Arrays.asList("the","a","and","is","are","you","i","to","it","what","of","in","that","this","for","my","me","we","do","have","yes","no","can","how","where","your","be","was","on","with","not","okay","ok","so","just","like","know","he","she","they","him","her","them","go","get","got","one","said","say","if","but","all","about","there","when","then","dey","deh","wha","nah","mek","dem","ah","gyal","bai","pickney","di","yuh","fuh"));

@@ -16,7 +16,7 @@ import java.io.File;
  * Wearable pipeline (v0.1.2, phone talks to xAI directly):
  * earbud mic (SCO) + phone mic -> on-phone VAD -> xAI streaming STT (audio streamed WHILE the person talks)
  * -> Grok streaming -> xAI streaming TTS (voice Ara) fed token by token -> AudioTrack into the earbud.
- * Capture never pauses (full duplex); our own voice is rejected by echo matching. Audio is never written anywhere.
+ * Capture never pauses (full duplex); our own voice is rejected by echo matching. Conversation audio is never written anywhere (0.1.10 exception: 1–3 encrypted enrollment clips, on-phone only).
  */
 public class WhisperService extends Service {
   public static final String ACTION_START = "start", ACTION_STOP = "stop";
@@ -42,13 +42,13 @@ public class WhisperService extends Service {
   static void initLog(Context c) { if (logFile == null) logFile = new File(c.getFilesDir(), "jw-log.txt"); }
   public static List<String> logSnapshot() { synchronized (LOG) { return new ArrayList<>(LOG); } }
 
-  class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr; long frames; float peak;
+  class Chan { final String label; final boolean earbud; volatile AudioRecord rec; Thread th; volatile long lastRead; volatile String restart; float noise = 150; volatile float snr; long frames; float peak; int quietFrames; boolean silentWarned;
     Chan(String l, boolean e) { label = l; earbud = e; } }
   /** One utterance at a time across both mics: the mic that hears speech first streams it; speaker = mic with higher SNR. */
-  class Utt { final Proximity.Acc acc = new Proximity.Acc(); int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n, pauses; boolean duringTts; }
+  class Utt { final Proximity.Acc acc = new Proximity.Acc(); int vadMs = 500; Chan owner; Xai.Stt stt; long startWall, endUp; double snrMe, snrThem; int n, pauses; boolean duringTts; final java.io.ByteArrayOutputStream pcm = new java.io.ByteArrayOutputStream(); }
 
   AudioManager am; Xai xai; Xai.Tts tts; PowerManager.WakeLock wl; Db db; Db.Session sess;
-  Chan me, them; boolean dual; int sens; String mode, prebrief, model;
+  volatile boolean heardSpeech; Chan me, them; boolean dual; int sens; String mode, prebrief, model;
   volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); final Guard guard = new Guard(); People people; public static volatile String settingShown = "auto"; volatile ScheduledFuture<?> pendingCoach;
   final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
@@ -88,6 +88,14 @@ public class WhisperService extends Service {
       dual = "1".equals(Prefs.s(this, "dual", "1")); sens = Integer.parseInt(Prefs.s(this, "sens", "1"));
       // 0.1.9 housekeeping (once): reset the learned note polluted by test chatter; volume 1.0 is too loud in an earbud
       if (!"1".equals(Prefs.s(this, "reset019", ""))) { Prefs.put(this, "learned", ""); if (Float.parseFloat(Prefs.s(this, "vol", "0.35")) > 0.8f) Prefs.put(this, "vol", "0.6"); Prefs.put(this, "reset019", "1"); log("0.1.9: learned note reset; whisper volume capped at 60% (change in Settings)"); }
+      heardSpeech = false;
+      // 0.1.10 one-time cleanup of the 15 Oct voice-test leftovers (approved by Calton): invented "Justina Evans", echo-cycle learned note
+      if (!"1".equals(Prefs.s(this, "clean0110", ""))) { try {
+          for (Db.Person p : db.d().people()) if (p.name != null && p.name.toLowerCase(Locale.US).contains("justina")) { db.d().deleteConvos(p.id); db.d().delete(p); log("🧹 Removed test person: " + p.name); }
+          for (Db.Session s : db.d().sessions()) if (s.summary != null && (s.summary.contains("Justina") || s.summary.contains("Miss Carlton"))) { s.summary = ""; db.d().update(s); log("🧹 Cleared voice-test session summary"); }
+          String ln = Prefs.s(this, "learned", ""); if (ln.contains("echo") || ln.contains("Carlton") || ln.contains("Justina")) { Prefs.put(this, "learned", ""); log("🧹 Cleared test learned note"); }
+        } catch (Throwable t) { log("cleanup: " + t.getMessage()); } Prefs.put(this, "clean0110", "1"); }
+      if (VoiceEnroll.needGuided(this)) { Prefs.put(this, "cal_pending", "1"); log("🎙 Voice enrollment: say “" + VoiceEnroll.PHRASE + "” now (earbud in). Kept encrypted on this phone only."); }
       if (Prefs.s(this, "prox_prof", "").isEmpty()) log("🎙 Voice not learned yet – javis won't coach until it has heard you. Tap 'Teach javis my voice' and say one sentence, or just talk – it learns as you go.");
       try { List<String> kt = new ArrayList<>(Arrays.asList(Guard.KEYTERMS)); for (Db.Person p : db.d().people()) if (p.name != null && kt.size() < 90) kt.add(p.name); Xai.keyterms = kt.toArray(new String[0]); } catch (Throwable ignored) {}
       sess = new Db.Session(); try { sess.version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Throwable ignored) {} sess.started = System.currentTimeMillis(); sess.mode = mode; sess.prebrief = prebrief; sess.id = db.d().add(sess);
@@ -214,7 +222,12 @@ public class WhisperService extends Service {
       int got; try { got = r.read(f, 0, FRAME); } catch (Throwable t) { got = -1; }
       c.lastRead = SystemClock.uptimeMillis();
       if (got <= 0) { SystemClock.sleep(20); continue; }
-      if (++c.frames % 250 == 0 && c.peak < 30) log(c.label + " mic is silent (no audio for 5 s) – check permissions/earbuds"); if (c.frames % 250 == 0) c.peak = 0;
+      // 0.1.10: "mic is silent" only for a truly dead mic – 5 s before any speech this session, 25 s after speech was heard. Once per quiet stretch.
+      c.frames++;
+      { double ss = 0; for (int i = 0; i < got; i++) ss += (double) f[i] * f[i]; float rr = (float) Math.sqrt(ss / got);
+        if (rr >= 30) { c.quietFrames = 0; c.silentWarned = false; } else c.quietFrames++;
+        int limit = heardSpeech ? 1250 : 250; // 20 ms frames
+        if (!c.silentWarned && c.quietFrames >= limit) { c.silentWarned = true; log(c.label + " mic is silent (no audio for " + (limit / 50) + " s) – check permissions/earbuds"); } }
       double s = 0; for (int i = 0; i < got; i++) s += (double) f[i] * f[i]; float rms = (float) Math.sqrt(s / got); if (rms > c.peak) c.peak = rms;
       float thr = Math.max(SENS_MIN[sens], c.noise * SENS_MARGIN[sens]); c.snr = rms / Math.max(c.noise, 1);
       if (c == me) { levelMe = rms; thrMe = thr; } else { levelThem = rms; thrThem = thr; }
@@ -233,11 +246,11 @@ public class WhisperService extends Service {
           synchronized (uttLock) { if (cur == null) {
             Utt n = new Utt(); n.owner = c; n.startWall = System.currentTimeMillis() - 300; n.duringTts = playingUntil > SystemClock.uptimeMillis();
             ScheduledFuture<?> pc = pendingCoach; if (pc != null) pc.cancel(false); // someone started talking: not a natural pause
-            n.stt = xai.stt("translate".equals(mode) ? "" : "en"); for (byte[] p : pre) n.stt.push(p); pre.clear(); cur = n; silence = 0; voiced = 3; frames = 0;
+            n.stt = xai.stt("translate".equals(mode) ? "" : "en"); for (byte[] p : pre) { n.stt.push(p); n.pcm.write(p, 0, p.length); } pre.clear(); cur = n; silence = 0; voiced = 3; frames = 0;
           } }
         }
       } else { // this mic owns the open utterance: stream its audio to xAI STT live
-        u.stt.push(pcm); frames++;
+        u.stt.push(pcm); frames++; if (u.pcm.size() < 16000 * 2 * 4) u.pcm.write(pcm, 0, pcm.length);
         if (v) { if (silence >= 18) u.pauses++; voiced++; silence = 0; } else if (silence++ == 0) silenceStart = SystemClock.uptimeMillis();
         // end on 500 ms pause, or after 300 ms if xAI STT already finalised the phrase (saves ~200-400 ms)
         if (silence >= END_SILENCE_FRAMES || (silence >= 15 && u.stt.finalSince(silenceStart)) || frames > 750) {
@@ -258,12 +271,17 @@ public class WhisperService extends Service {
       String text = u.stt.result(2500); long tText = SystemClock.uptimeMillis();
       status = "Listening";
       if (text == null || text.isEmpty()) { log(u.stt.error != null ? "Speech-to-text error: " + u.stt.error : "(heard sound, no words)"); return; }
+      heardSpeech = true;
       String raw = text; text = Guard.normalize(text); if (!text.equals(raw)) log("(fixed mishear: \"" + raw + "\" → \"" + text + "\")");
       if ((u.duringTts || System.currentTimeMillis() < lastWhisperAt + 4000) && echoOf(text, lastWhisper)) { log("(ignored own whisper echo)"); return; }
       // ---- voice proximity: soft near-owner score with an UNSURE middle band ----
       Proximity.Feat pf = u.acc.feat();
-      if ("1".equals(Prefs.s(this, "cal_pending", "0"))) { Prefs.put(this, "cal_pending", "0"); Proximity.learn(this, pf, 3); log("✔ Learned your voice: " + pf); return; }
-      double near = Proximity.nearScore(this, pf);
+      byte[] clip = u.pcm.toByteArray();
+      if ("1".equals(Prefs.s(this, "cal_pending", "0"))) { Prefs.put(this, "cal_pending", "0");
+        try { VoiceEnroll.save(this, clip, pf); log("✔ Voice enrolled (" + VoiceEnroll.count(this) + "/3 samples, kept encrypted on this phone only): " + pf); }
+        catch (Exception e) { Proximity.learn(this, pf, 3); log("✔ Learned your voice (clip not kept: " + e.getMessage() + "): " + pf); }
+        saveTurn("heard", "Me", "en", text, u.startWall); brain.meSeen = true; return; }
+      double near = Proximity.nearScore(this, pf, clip); clip = null;
       String spk = Proximity.band(near);
       long nowW = System.currentTimeMillis();
       // 0.1.9: Calton repeating a whisper = it landed, and it's HIS voice → tag Me, learn his voice, don't push that point again
@@ -273,6 +291,8 @@ public class WhisperService extends Service {
       else if ("Unsure".equals(spk) && brain.lastThemEnd > 0 && u.startWall - brain.lastThemEnd < 6000 && Guard.hits(text, brain.lastThemText) >= 1) { log("(probably Calton – replied on topic)"); spk = "Me"; Proximity.learn(this, pf, 0.3); }
       if ("Me".equals(spk)) { brain.meSeen = true; guard.calton(); } else if ("Them".equals(spk)) guard.far(nowW, text);
       brain.monologue = guard.monologue(nowW);
+      // 0.1.10: pure voice/mic-test phrases: log + save, never coach, never names
+      if (Guard.isVoiceTest(text)) { log(spk + ": " + text + String.format(Locale.US, "   (voice test – no coaching · near %.2f · %s)", near, pf)); saveTurn("heard", spk, "en", text, u.startWall); return; }
       String why0 = Guard.unclear(text);
       if (why0 != null) { log("(waiting out: " + why0 + " – \"" + text + "\")"); saveTurn("heard", spk, "", text, u.startWall); return; }
       if ("Me".equals(spk) && near >= 0.85) Proximity.learn(this, pf, 0.3); // passive profile from very confident own turns

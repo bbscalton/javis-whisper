@@ -11,12 +11,13 @@ import java.util.regex.*;
  */
 public class People {
   static final Pattern NAME = Pattern.compile("\\b(?i:this is|i'm|i am|my name is|meet|call me|thanks,?|thank you,?)\\s+([A-Z][a-z]{2,15})(?:\\s+([A-Z][a-z]{2,15}))?");
-  static final Set<String> NOT_NAMES = new HashSet<>(Arrays.asList("Sure","Fine","Good","Okay","Here","Sorry","Just","Going","Really","Not","The","Very","Glad","Happy","Calton","Whisper","Javis","Jarvis","Much","You","Everyone","All"));
+  static final Set<String> NOT_NAMES = new HashSet<>(Arrays.asList("Sure","Fine","Good","Okay","Here","Sorry","Just","Going","Really","Not","The","Very","Glad","Happy","Calton","Carlton","Carbon","Andrew","Miss","Mister","Whisper","Javis","Jarvis","Much","You","Everyone","All","Testing","Test","Mode","Street","Coach","Green","Truck","Manager","Earbuds","Mic"));
   final Context c; Db.Person cur; String card = ""; long convoStart; String goal = ""; String preName = "";
   People(Context c) { this.c = c.getApplicationContext(); }
 
   /** Name heard in a line of speech, or null. spk tells us whose name it is ("this is X" from Them = their name). */
   static String nameIn(String text, String spk) {
+    if (text == null || Guard.isVoiceTest(text) || Guard.unclear(text) != null) return null; // 0.1.10: never from test noise / fragments
     Matcher m = NAME.matcher(text); if (!m.find()) return null;
     String n = m.group(1); if (NOT_NAMES.contains(n)) return null;
     String lead = m.group(0).toLowerCase(Locale.US);
@@ -93,7 +94,11 @@ public class People {
         + "{\"topic\":\"<≤8 words>\",\"key_facts\":[\"…\"],\"promises\":[\"<who> → <what> → <when>\"],\"open_items\":[\"…\"],\"summary\":\"<≤40 words>\",\"person_note\":\"<≤25 words of durable facts about this person, or ''>\",\"name\":\"<their name if said, or ''>\"}. "
         + "Plain facts only from the transcript (live speech recognition, may have errors). Empty arrays when none.")).put(Learn.msg("user", t)), 400, 0.2, null);
       JSONObject j = new JSONObject(raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
-      if (p == null && !j.optString("name", "").isEmpty()) { attach(j.optString("name"), "", "named in conversation"); synchronized (this) { p = cur; cur = null; card = ""; } }
+      // 0.1.10: only create a person when the name is clearly introduced in the transcript (not a garbled test word), never in a test session
+      String jn = j.optString("name", "").trim(); List<String> heard = new ArrayList<>(); for (Db.Turn tt : turns) if ("heard".equals(tt.kind)) heard.add(tt.text);
+      boolean test = Guard.testSession(heard); if (test) { WhisperService.log("(recap skipped: voice/mic test, no person or note saved)"); return; }
+      if (p == null && !jn.isEmpty() && clearlyIntroduced(jn, turns)) { attach(jn, "", "named in conversation"); synchronized (this) { p = cur; cur = null; card = ""; } }
+      else if (p == null && !jn.isEmpty()) WhisperService.log("(not adding \"" + jn + "\" – name wasn't clearly introduced)");
       Db.Convo cv = new Db.Convo(); cv.sessionId = s.id; cv.personId = p == null ? 0 : p.id; cv.started = from == 0 ? s.started : from; cv.ended = System.currentTimeMillis(); cv.setting = setting;
       cv.topic = j.optString("topic"); cv.keyFacts = join(j.optJSONArray("key_facts")); cv.promises = join(j.optJSONArray("promises")); cv.openItems = join(j.optJSONArray("open_items")); cv.summary = j.optString("summary");
       Db.get(c).d().add(cv);
@@ -103,6 +108,13 @@ public class People {
       WhisperService.log("📝 Recap – " + recap); notifyRecap(recap);
     } catch (Exception e) { WhisperService.log("(recap failed: " + e.getMessage() + ")"); }
   }
+  /** 0.1.10: the name must come from a real introduction line ("this is X", "my name is X") by Them, or a pre-brief. */
+  static boolean clearlyIntroduced(String name, List<Db.Turn> turns) {
+    String first = norm(name).split(" ")[0]; if (first.length() < 3 || NOT_NAMES.contains(cap(first))) return false;
+    for (Db.Turn t : turns) { if (!"heard".equals(t.kind) || "Me".equals(t.speaker)) continue; String n = nameIn(t.text, t.speaker); if (n != null && norm(n).startsWith(first)) return true; }
+    return false;
+  }
+  static String cap(String s) { return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1); }
   static String join(JSONArray a) { if (a == null) return ""; List<String> r = new ArrayList<>(); for (int i = 0; i < a.length(); i++) { String s = a.optString(i).trim(); if (!s.isEmpty()) r.add(s); } return String.join("; ", r); }
   void notifyRecap(String recap) {
     try { NotificationManager nm = c.getSystemService(NotificationManager.class); nm.createNotificationChannel(new NotificationChannel("jw-recap", "Conversation recaps", NotificationManager.IMPORTANCE_DEFAULT));

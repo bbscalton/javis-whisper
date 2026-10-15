@@ -26,9 +26,9 @@ public class MainActivity extends Activity {
     st.addView(text(this, "Earbud mic (Me)", 12, MUTED), lp(this, -1, -2, 8)); meBar = bar(); st.addView(meBar, lp(this, -1, px(this, 10), 2));
     st.addView(text(this, "Phone mic (Them)", 12, MUTED), lp(this, -1, -2, 6)); themBar = bar(); st.addView(themBar, lp(this, -1, px(this, 10), 2));
 
-    voiceB = button(this, "🎙 Voice not learned – javis waits until it knows you. Tap to teach it (START, then say one sentence).", 0xFFEF6C00); voiceB.setTextSize(13); root.addView(voiceB, lp(this, -1, -2, 10));
+    voiceB = button(this, "🎙 Voice not enrolled – press START, then say: “This is Calton doing the mic test.”", 0xFFEF6C00); voiceB.setTextSize(13); root.addView(voiceB, lp(this, -1, -2, 10));
     voiceB.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Press START first, then tap this again and say one normal sentence."); return; }
-      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, e.g. ‘This is Calton testing my earbud.’"); });
+      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is Calton doing the mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
     LinearLayout modes = new LinearLayout(this); root.addView(modes, lp(this, -1, -2, 12));
     for (String[] m : new String[][]{{"coach", "Coach"}, {"translate", "Translate"}, {"street", "Street"}}) {
       Button bt = button(this, m[1], CARD); modeBtns.put(m[0], bt); LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, -2, 1); l.setMargins(px(this, 3), 0, px(this, 3), 0); modes.addView(bt, l);
@@ -97,9 +97,10 @@ public class MainActivity extends Activity {
     sensB.setOnClickListener(v -> { Prefs.put(this, "sens", String.valueOf((Integer.parseInt(Prefs.s(this, "sens", "1")) + 1) % 3)); ps.run(); });
     Switch dual = new Switch(this); dual.setText("Use phone mic for the other person (labels Me / Them)"); dual.setTextColor(0xFFFFFFFF); dual.setChecked("1".equals(Prefs.s(this, "dual", "1"))); c.addView(dual, lp(this, -1, -2, 10));
     dual.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "dual", on ? "1" : "0"));
-    Button cal = button(this, Prefs.s(this, "prox_prof", "").isEmpty() ? "Teach javis my voice (optional)" : "Teach javis my voice again (optional)", CARD); c.addView(cal, lp(this, -1, -2, 10));
+    Button cal = button(this, Prefs.s(this, "prox_prof", "").isEmpty() ? "Enroll my voice" : "Re-enroll my voice (" + VoiceEnroll.count(this) + "/3 samples · long-press to reset)", CARD); c.addView(cal, lp(this, -1, -2, 10));
+    cal.setOnLongClickListener(v -> { VoiceEnroll.clear(this); Prefs.put(this, "prox_prof", ""); alert("Voice samples removed", "Press START and say: ‘This is Calton doing the mic test.’"); return true; });
     cal.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Optional – javis also learns your voice by itself from your ‘Whisper, …’ commands. Press START first, then tap this and say one normal sentence with the earbud in."); return; }
-      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, e.g. ‘This is Calton testing my earbud.’"); });
+      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is Calton doing the mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
     Switch voice = new Switch(this); voice.setText("Speak whispers in earbud (off = text only)"); voice.setTextColor(0xFFFFFFFF); voice.setChecked(!"0".equals(Prefs.s(this, "voice", "1"))); c.addView(voice, lp(this, -1, -2, 10));
     voice.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "voice", on ? "1" : "0"));
 
@@ -135,6 +136,7 @@ public class MainActivity extends Activity {
           catch (Exception e) { h.post(() -> { startB.setEnabled(true); alert("Can't get the xAI key", reason(e)); }); } }).start(); return; }
       settings.setVisibility(View.VISIBLE); alert("Setup needed", "Pair with PC01 (Settings → 6-digit code) – that loads the xAI key automatically. Or paste an xAI key in Settings."); return; }
     startForegroundService(new Intent(this, WhisperService.class).setAction(WhisperService.ACTION_START));
+    if (VoiceEnroll.needGuided(this)) alert("Voice enrollment (once)", "With the earbud in, say:\n\n“This is Calton doing the mic test.”\n\njavis keeps this short clip encrypted on this phone only (never uploaded, conversations are never recorded) so it knows your voice from the first line.");
   }
   void alert(String title, String msg) { h.post(() -> { if (!isFinishing()) new android.app.AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); }); }
   static String reason(Exception e) {
@@ -157,7 +159,7 @@ public class MainActivity extends Activity {
     routeT.setText(WhisperService.route + (WhisperService.lastTiming.isEmpty() ? "" : "\n" + WhisperService.lastTiming));
     meBar.setProgress(meter(WhisperService.levelMe)); themBar.setProgress(meter(WhisperService.levelThem));
     startB.setText(r ? "STOP" : "START listening"); startB.setBackground(round(r ? RED : GREEN, px(this, 12)));
-    paintChip(); voiceB.setVisibility(Prefs.s(this, "prox_prof", "").isEmpty() ? View.VISIBLE : View.GONE);
+    paintChip(); voiceB.setVisibility(VoiceEnroll.needGuided(this) ? View.VISIBLE : View.GONE);
     List<String> lg = WhisperService.logSnapshot(); logT.setText(String.join("\n", lg));
     lastT.setText(r ? WhisperService.status + " · " + WhisperService.route + (lg.isEmpty() ? "" : "\n" + lg.get(0)) : (Prefs.s(this, "xai_key", "").isEmpty() ? "Setup: Settings → pair with PC01 (6-digit code)" : "Ready – press START"));
     h.postDelayed(this::tick, 150);
