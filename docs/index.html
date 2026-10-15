@@ -37,6 +37,9 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 .pulse{animation:pl 2s ease-out infinite;transform-origin:center;transform-box:fill-box}@keyframes pl{0%{opacity:.9;transform:scale(.6)}100%{opacity:0;transform:scale(1.6)}}
 .feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px}.feat div{background:#0e2546;border-radius:14px;padding:12px}.feat img{width:100%;height:auto;display:block;margin-bottom:8px}
 @media (prefers-reduced-motion:reduce){.step,.wave rect,.dot,.pulse{animation:none}}
+.mom{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px}.mom figure{margin:0;background:#0e2546;border-radius:14px;overflow:hidden}.mom img{width:100%;height:auto;display:block}.mom figcaption{padding:10px 14px}
+table.cmp{width:100%;border-collapse:collapse}.cmp td,.cmp th{padding:8px;border-bottom:1px solid #1e4a85;text-align:left;vertical-align:top}.cmp th{color:#7cc4ff}
+details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}summary{cursor:pointer;font-weight:600}
 </style></head><body>
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
@@ -49,6 +52,30 @@ ol,ul{padding-left:22px}li{margin:6px 0}code{background:#0e2546;padding:2px 6px;
 <div class="step"><svg viewBox="0 0 100 60" width="100" height="60" class="wave" aria-hidden="true"><rect x="15" y="10" width="8" height="40" rx="4"/><rect x="31" y="5" width="8" height="50" rx="4"/><rect x="47" y="15" width="8" height="30" rx="4"/><rect x="63" y="5" width="8" height="50" rx="4"/><rect x="79" y="12" width="8" height="36" rx="4"/></svg><br><b>Hears</b><br><span class="small">Listens to the whole conversation</span></div><span class="arr">→</span>
 <div class="step"><svg viewBox="0 0 100 60" width="100" height="60" aria-hidden="true"><circle class="dot" cx="30" cy="30" r="8" fill="#7cc4ff"/><circle class="dot" cx="50" cy="30" r="8" fill="#7cc4ff"/><circle class="dot" cx="70" cy="30" r="8" fill="#7cc4ff"/></svg><br><b>Thinks</b><br><span class="small">Gets the topic, then decides: stay quiet or help</span></div><span class="arr">→</span>
 <div class="step"><svg viewBox="0 0 100 60" width="100" height="60" aria-hidden="true"><path d="M62 4c-18 0-30 12-30 28 0 9 3 13 5 17 2 4 1 8-1 11h30l1-8c8-1 13-5 14-11l1-6 5-2-5-11c0-12-8-18-20-18z" fill="#1e4a85"/><circle class="bud" cx="60" cy="30" r="5" fill="#7cc4ff"/><circle class="rip r1" cx="60" cy="30" r="12" style="transform-origin:60px 30px"/><circle class="rip r2" cx="60" cy="30" r="12" style="transform-origin:60px 30px"/><circle class="rip r3" cx="60" cy="30" r="12" style="transform-origin:60px 30px"/></svg><br><b>Whispers</b><br><span class="small">A short tip in Ara’s voice – only you hear it</span></div></div></section>
+<section><h2>Moments where a friend nearby helps</h2><div class="mom">
+<figure><img src="img/moment-boss.webp" alt="Illustration: Talking with your boss" width="640" height="400" loading="lazy"><figcaption><b>Talking with your boss</b><br><span class="small">Coach mode keeps you on point and whispers the better option or the next thing to say – only once it has something worth saying.</span></figcaption></figure>
+<figure><img src="img/moment-street.webp" alt="Illustration: On the go" width="640" height="400" loading="lazy"><figcaption><b>On the go</b><br><span class="small">Street mode stays calm: one short tip at a time, never while someone is talking.</span></figcaption></figure>
+<figure><img src="img/moment-directions.webp" alt="Illustration: Asking a passer-by" width="640" height="400" loading="lazy"><figcaption><b>Asking a passer-by</b><br><span class="small">Ask “Whisper, …” any time for a quick answer, or let javis catch the detail you missed.</span></figcaption></figure>
+<figure><img src="img/moment-language.webp" alt="Illustration: Meeting someone new" width="640" height="400" loading="lazy"><figcaption><b>Meeting someone new</b><br><span class="small">Translate mode whispers what they meant in English and a short reply you can say in their language.</span></figcaption></figure>
+</div></section>
+<section><h2>Why Whisper, not just a chatbot?</h2><table class="cmp"><tr><th></th><th>Chatbot app</th><th>Javis Whisper</th></tr>
+<tr><td>When it helps</td><td>When you stop, unlock, type</td><td>During the conversation, hands-free</td></tr>
+<tr><td>Who hears it</td><td>Screen or speaker</td><td>Only you, in your earbud</td></tr>
+<tr><td>Knows the moment</td><td>Only what you tell it</td><td>Hears both sides, tells your voice from theirs, knows the topic</td></tr>
+<tr><td>Knows when to be quiet</td><td>Always answers</td><td>Stays quiet unless it really helps; never asks you questions</td></tr>
+<tr><td>Remembers</td><td>Chat history</td><td>People you met, what was promised, a short recap after</td></tr></table></section>
+<section><h2>Our privacy promise</h2><ul>
+<li>Conversations are <b>never recorded</b>. Audio only goes out live to be transcribed; just the text is kept – on your phone.</li>
+<li>Your voice sample is kept <b>encrypted on your phone</b> and never uploaded.</li>
+<li>You bring your own xAI key; it is stored encrypted on the phone, never in the app.</li>
+<li>People and notes can be edited or deleted any time on the People screen. Send to PC only runs when you press it.</li></ul></section>
+<section><h2>FAQ</h2>
+<details><summary>What do I need?</summary><p>An Android 9+ phone, Bluetooth earbuds with a microphone (Calls audio enabled), an internet connection and your own xAI API key.</p></details>
+<details><summary>Will the other person hear it?</summary><p>No – the whisper plays only in your earbud. Keep the volume low and use one earbud for the most natural feel.</p></details>
+<details><summary>Does it talk all the time?</summary><p>No. It listens first, catches on after the first exchange and only whispers when it has something useful. It never corrects a joke.</p></details>
+<details><summary>Can I ask it directly?</summary><p>Yes – say “Whisper, …” followed by your question and it answers right away.</p></details>
+<details><summary>Is it on iPhone?</summary><p>Not yet – Android only for now.</p></details>
+<details><summary>Is it finished?</summary><p>It’s a prototype: it works, and it gets better with every real-world test.</p></details></section>
 <section><h2>What it does</h2><div class="feat">
 <div><img src="img/enroll.svg" alt="Microphone with sound bars" width="320" height="200"><b>Knows your voice</b><br><span class="small">One short enrollment, kept encrypted on your phone.</span></div>
 <div><img src="img/people.svg" alt="Three figures linked by a dotted line" width="320" height="200"><b>Remembers people</b><br><span class="small">Who you talk to and what was promised.</span></div>
