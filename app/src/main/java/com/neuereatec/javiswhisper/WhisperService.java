@@ -58,6 +58,8 @@ public class WhisperService extends Service {
   static Set<String> lockAllowed(Context c) { Set<String> all = new LinkedHashSet<>(); if (VoiceEnroll.has(c)) all.add(VoiceEnroll.owner(c)); all.addAll(VoiceEnroll.voices(c).keySet());
     String p = Prefs.s(c, "lock_allow", ""); if (p.isEmpty()) return all; Set<String> s = new LinkedHashSet<>(); for (String n : p.split(";")) if (all.contains(n)) s.add(n); return s; }
   static boolean lockActive(Context c) { return "1".equals(Prefs.s(c, "lock", "0")) && !lockAllowed(c).isEmpty(); }
+  // 0.1.14 natural-speech enrollment + continuity
+  volatile int natLeft; volatile double natF0; volatile long natUntil, lastMeWall; volatile double lastMeF0;
   volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); final Guard guard = new Guard(); People people; public static volatile String settingShown = "auto"; volatile ScheduledFuture<?> pendingCoach;
   final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
@@ -303,13 +305,22 @@ public class WhisperService extends Service {
       String said = VoiceEnroll.spokenName(text);
       if (said != null && !VoiceEnroll.isOwner(this, said)) { Prefs.put(this, "cal_pending", "0"); VoiceEnroll.saveNamed(this, said, pf); matchName = said; meMatchAt = System.currentTimeMillis(); curSpeaker = said; curAt = meMatchAt;
         log("✔ Learned " + said + "'s voice (kept encrypted on this phone only)"); saveTurn("heard", "Them", "en", text, u.startWall); return; }
-      if (said != null) Prefs.put(this, "cal_pending", "1"); // owner said the phrase → (re-)enroll as owner
-      if ("1".equals(Prefs.s(this, "cal_pending", "0"))) { Prefs.put(this, "cal_pending", "0"); matchName = VoiceEnroll.owner(this);
-        try { VoiceEnroll.save(this, clip, pf); log("✔ Voice enrolled (" + VoiceEnroll.count(this) + "/3 samples, kept encrypted on this phone only): " + pf); }
-        catch (Exception e) { Proximity.learn(this, pf, 3); log("✔ Learned your voice (clip not kept: " + e.getMessage() + "): " + pf); }
-        saveTurn("heard", "Me", "en", text, u.startWall); brain.meSeen = true; ownerKnown = true; meMatchAt = System.currentTimeMillis(); curSpeaker = VoiceEnroll.owner(this); curAt = meMatchAt; return; }
+      // 0.1.14: the phrase only says WHO it is – the voiceprint is built from the next 3 natural sentences, the hissy phrase clip is never saved
+      if (said != null || "1".equals(Prefs.s(this, "cal_pending", "0"))) { Prefs.put(this, "cal_pending", "0"); matchName = VoiceEnroll.owner(this);
+        natLeft = 3; natF0 = pf.pitch; natUntil = System.currentTimeMillis() + 90_000; lastMeWall = System.currentTimeMillis(); lastMeF0 = pf.pitch;
+        if (!VoiceEnroll.has(this)) Proximity.learn(this, pf, 0.5);
+        log("✔ Hi " + matchName + " – keep talking normally; javis learns your voice from your next 3 sentences");
+        saveTurn("heard", "Me", "en", text, u.startWall); brain.meSeen = true; ownerKnown = true; meMatchAt = System.currentTimeMillis(); curSpeaker = matchName; curAt = meMatchAt; return; }
+      boolean forceMe = false;
+      if (natLeft > 0 && System.currentTimeMillis() < natUntil && pf.pitch > 0 && (natF0 <= 0 || Math.abs(pf.pitch / natF0 - 1) <= 0.25)) { forceMe = true;
+        natLeft--; try { VoiceEnroll.save(this, clip, pf); log("✔ Voice sample from natural speech (" + (3 - natLeft) + "/3): " + pf); } catch (Exception e) { Proximity.learn(this, pf, 1); }
+      }
       double near = Proximity.nearScore(this, pf, clip); clip = null;
-      String spk = Proximity.band(near);
+      Proximity.noEarbud = !scoActive();
+      String spk = forceMe ? "Me" : Proximity.band(this, near);
+      // 0.1.14 continuity: an unsure turn within 5 s of a confident Me turn with pitch within ±15% is still Calton
+      if ("Unsure".equals(spk) && lastMeF0 > 0 && pf.pitch > 0 && System.currentTimeMillis() - lastMeWall < 5000 && Math.abs(pf.pitch / lastMeF0 - 1) <= 0.15) { spk = "Me"; Proximity.learn(this, pf, 0.3); log(String.format(Locale.US, "(same voice as Calton a moment ago – f0 %.0f, near %.2f)", pf.pitch, near)); }
+      { double of0 = Proximity.ownerF0(this); if ("Me".equals(spk)) Proximity.calMe(this, near); else if (of0 > 0 && pf.pitch > 0 && Math.abs(Math.log(pf.pitch / of0)) > 0.25) Proximity.calOther(this, near); }
       long nowW = System.currentTimeMillis();
       // 0.1.9: Calton repeating a whisper = it landed, and it's HIS voice → tag Me, learn his voice, don't push that point again
       String used = "Me".equals(spk) ? null : guard.echoOf(text, nowW);
@@ -320,13 +331,13 @@ public class WhisperService extends Service {
       curSpeaker = VoiceEnroll.identify(this, spk, pf); curAt = System.currentTimeMillis(); // every utterance updates the badge
       // 0.1.13 Lock: with ≥2 enrolled voices (owner + 1 other), unrecognised speech is discarded – not saved, not shown, not sent to Grok
       if (lockActive(this) && (curSpeaker == null || !lockAllowed(this).contains(curSpeaker))) { log("(🔒 Lock: ignored " + (curSpeaker == null ? "an unrecognised voice" : curSpeaker + " – not in the lock list") + ")"); curSpeaker = null; return; }
-      if ("Me".equals(spk)) { brain.meSeen = true; ownerKnown = true; matchName = VoiceEnroll.owner(this); meMatchAt = System.currentTimeMillis(); guard.calton(); } else if ("Them".equals(spk)) guard.far(nowW, text);
+      if ("Me".equals(spk)) { brain.meSeen = true; ownerKnown = true; matchName = VoiceEnroll.owner(this); meMatchAt = System.currentTimeMillis(); lastMeWall = meMatchAt; if (pf.pitch > 0) lastMeF0 = pf.pitch; guard.calton(); } else if ("Them".equals(spk)) guard.far(nowW, text);
       brain.monologue = guard.monologue(nowW);
       // 0.1.10: pure voice/mic-test phrases: log + save, never coach, never names
       if (Guard.isVoiceTest(text)) { log(spk + ": " + text + String.format(Locale.US, "   (voice test – no coaching · near %.2f · %s)", near, pf)); saveTurn("heard", spk, "en", text, u.startWall); return; }
       String why0 = Guard.unclear(text);
       if (why0 != null) { log("(waiting out: " + why0 + " – \"" + text + "\")"); saveTurn("heard", spk, "", text, u.startWall); return; }
-      if ("Me".equals(spk) && near >= 0.85) Proximity.learn(this, pf, 0.3); // passive profile from very confident own turns
+      if ("Me".equals(spk) && near >= 0.6 && (!pf.overlap || (Proximity.ownerF0(this) > 0 && Math.abs(pf.pitch / Proximity.ownerF0(this) - 1) <= 0.15))) Proximity.learn(this, pf, 0.3); // 0.1.14: passive learning bar 0.85→0.6
       boolean english = isEnglishish(text);
       String cues = cues(text, u, spk);
       // 0.1.6: tone from the voice (relative to each speaker's own baseline), overlap, and pause timing

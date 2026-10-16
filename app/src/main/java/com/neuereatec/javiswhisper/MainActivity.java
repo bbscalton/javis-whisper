@@ -19,6 +19,7 @@ public class MainActivity extends Activity {
     lastT = text(this, "", 13, 0xFFE3ECF7); lastT.setMaxLines(3); bar.addView(lastT);
     root.addView(text(this, "Javis Whisper", 28, 0xFFFFFFFF));
     root.addView(text(this, "Your earbud AI companion · by Neuereatec", 14, MUTED));
+    { String vn = "?"; try { vn = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Throwable ignored) {} root.addView(text(this, "v" + vn, 13, 0xFF9CC9FF)); } // 0.1.14 visible version
 
     LinearLayout st = card(this); root.addView(st, lp(this, -1, -2, 14));
     statusT = text(this, "Stopped", 20, 0xFFFFFFFF); st.addView(statusT);
