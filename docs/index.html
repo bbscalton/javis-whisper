@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.11/JavisWhisper.apk">⬇ Download 0.1.11</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.12/JavisWhisper.apk">⬇ Download 0.1.12</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,14 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.11 – faster replies</h3>Shorter coach pause, snappier end-of-phrase detection, warmed-up connections and a pre-opened listen channel for a quicker first word, plus new latency settings you can tune.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.11/JavisWhisper.apk">⬇ Download 0.1.11</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.12 – remembers who's talking</h3>Your voice is remembered across restarts, a green light shows when javis recognises a voice, voices are learned by name, and the briefing is now optional.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.12/JavisWhisper.apk">⬇ Download 0.1.12</a></div>
 </div></section>
+<div id="v0112"><section><h2>What's new in 0.1.12</h2><ul>
+<li><b>Remembered voice identity.</b> Once javis knows your voice it keeps it (encrypted, on this phone) – no more re-doing the mic test every launch. Re-enroll or reset in Settings anytime.</li>
+<li><b>Voices learned by name.</b> Say “This is [your name] doing a mic test” and javis saves that voice under that name – for you or anyone else – and remembers it across restarts.</li>
+<li><b>Recognition light.</b> A badge lights up <b>green</b> with the name when javis recognises a voice, and stays <b>gray</b> when it doesn't. Tap the gray badge to see the phrase to say.</li>
+<li><b>Optional briefing.</b> START works without a briefing: javis picks up context from your last session (within 6 h) or works the topic out as it listens. Want it every time? Settings → “Always require a briefing”.</li>
+</ul></section></div>
 <div id="v0111"><section><h2>What's new in 0.1.11</h2><ul>
 <li><b>Faster coach response.</b> After the other person stops, javis now waits 0.45–1 s (was 0.7–1.8 s) before deciding to whisper.</li>
 <li><b>Snappier end-of-phrase.</b> A 440 ms pause now ends a phrase (was 500 ms).</li>
@@ -98,4 +104,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.11 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.12 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
