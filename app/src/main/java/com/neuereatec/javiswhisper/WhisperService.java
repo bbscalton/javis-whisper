@@ -136,7 +136,8 @@ public class WhisperService extends Service {
       final String pb = prebrief; // the real brief only (inferred context below never creates people)
       // 0.1.12 optional briefing: no pre-brief → carry context from a recent session (last 6 h) if there is one
       if (resumed && prebrief.isEmpty() && sess.prebrief != null) prebrief = sess.prebrief;
-      if (!resumed && prebrief.isEmpty()) try { for (Db.Session ps : db.d().sessions()) { if (ps.summary == null || ps.summary.isEmpty()) continue; if (System.currentTimeMillis() - ps.started < 6 * 3600_000L) { prebrief = "(no briefing – continuing from last session) " + People.clip(ps.summary, 300); log("No briefing – picking up from your last session's context"); } break; } } catch (Throwable ignored) {}
+      brain.background = ""; // 0.1.19: an earlier session's summary is background only – no head start, not a pre-brief
+      if (!resumed && prebrief.isEmpty()) try { for (Db.Session ps : db.d().sessions()) { if (ps.id == sess.id || ps.summary == null || ps.summary.isEmpty()) continue; if (System.currentTimeMillis() - ps.started < 6 * 3600_000L) { brain.background = People.clip(ps.summary, 300); log("Earlier session kept as background only (may be unrelated)"); } break; } } catch (Throwable ignored) {}
       if (prebrief.isEmpty() && !resumed) log("No briefing – javis will work out the topic as it listens");
       brain.resetCtx(); readiness = 0; readyWhy = "";
       brain.hasBrief = !prebrief.isEmpty(); if (brain.hasBrief) brain.topic = People.clip(prebrief, 60); people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
@@ -151,8 +152,8 @@ public class WhisperService extends Service {
       brain.onState = () -> ctxDirty = true;
       if (!backfill.isEmpty()) proc.execute(() -> { for (Db.Session ps : backfill) try { long lt = db.d().lastTs(ps.id); if (lt == 0) continue; ps.ended = lt; db.d().update(ps); Learn.endSession(this, xai, model, ps); log("(wrote the missing summary of an interrupted session)"); } catch (Throwable t) { log("(summary backfill: " + t.getMessage() + ")"); } });
       proc.execute(() -> { if (!pb.isEmpty()) people.fromPrebrief(xai, model, pb); brain.goal = people.goal; brain.personCard = people.card; });
-      log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
-      startBt();
+      startBt(); Proximity.noEarbud = !scoActive(); // 0.1.19: label from the real route
+      log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (Proximity.noEarbud ? "phone only (no earbuds) – speakers told apart mainly by pitch" : dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
       int min = AudioTrack.getMinBufferSize(SR, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
       track = new AudioTrack.Builder().setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
         .setAudioFormat(new AudioFormat.Builder().setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
@@ -338,6 +339,9 @@ public class WhisperService extends Service {
       if (said != null && !VoiceEnroll.isOwner(this, said)) { Prefs.put(this, "cal_pending", "0"); VoiceEnroll.saveNamed(this, said, pf); matchName = said; meMatchAt = System.currentTimeMillis(); curSpeaker = said; curAt = meMatchAt; try { Diar.Cl k = diar.assign(pf, null); if (k != null) { diar.name(k, said); curCl = k; curLabel = said; } } catch (Throwable ignored) {}
         log("✔ Learned " + said + "'s voice (kept encrypted on this phone only)"); saveTurn("heard", "Them", "en", text, u.startWall); return; }
       // 0.1.14: the phrase only says WHO it is – the voiceprint is built from the next 3 natural sentences, the hissy phrase clip is never saved
+      if (said != null && VoiceEnroll.has(this) && !"1".equals(Prefs.s(this, "cal_pending", "0"))) { // 0.1.19: already enrolled → no new learning round (re-enroll stays in Settings)
+        matchName = VoiceEnroll.owner(this); log("✔ Already know you – no new voice learning (re-enroll in Settings if needed)"); speakText("Already know you.");
+        saveTurn("heard", "Me", "en", text, u.startWall); brain.meSeen = true; ownerKnown = true; meMatchAt = System.currentTimeMillis(); curSpeaker = matchName; curAt = meMatchAt; return; }
       if (said != null || "1".equals(Prefs.s(this, "cal_pending", "0"))) { Prefs.put(this, "cal_pending", "0"); matchName = VoiceEnroll.owner(this);
         try { Diar.Cl k = diar.assign(pf, VoiceEnroll.owner(this)); curCl = k; curLabel = VoiceEnroll.owner(this); } catch (Throwable ignored) {}
         natLeft = 3; natF0 = pf.pitch; natUntil = System.currentTimeMillis() + 90_000; lastMeWall = System.currentTimeMillis(); lastMeF0 = pf.pitch;
@@ -349,33 +353,37 @@ public class WhisperService extends Service {
         natLeft--; try { VoiceEnroll.save(this, clip, pf); log("✔ Voice sample from natural speech (" + (3 - natLeft) + "/3): " + pf); } catch (Exception e) { Proximity.learn(this, pf, 1); }
       }
       double near = Proximity.nearScore(this, pf, clip); clip = null;
-      Proximity.noEarbud = !scoActive();
-      String spk = forceMe ? "Me" : Proximity.band(this, near);
+      Proximity.noEarbud = !scoActive(); final double of0s = Proximity.ownerF0(this);
+      if (pf.overlap && !Classify.overlapBelievable(Proximity.noEarbud, them != null)) pf.overlap = false; // 0.1.19: phone-only "talked over" is not believable
+      String band0 = Proximity.band(this, near); String spk = forceMe ? "Me" : Classify.refine(band0, pf.pitch, of0s, Proximity.noEarbud); // 0.1.19 pitch check (leads with no earbuds)
+      if (!forceMe && !spk.equals(band0)) log(String.format(Locale.US, "(voice by pitch: %s → %s · f0 %.0f vs yours %.0f)", band0, spk, pf.pitch, of0s));
       // 0.1.14 continuity: an unsure turn within 5 s of a confident Me turn with pitch within ±15% is still Calton
-      if ("Unsure".equals(spk) && lastMeF0 > 0 && pf.pitch > 0 && System.currentTimeMillis() - lastMeWall < 5000 && Math.abs(pf.pitch / lastMeF0 - 1) <= 0.15) { spk = "Me"; Proximity.learn(this, pf, 0.3); log(String.format(Locale.US, "(same voice as Calton a moment ago – f0 %.0f, near %.2f)", pf.pitch, near)); }
+      if ("Unsure".equals(spk) && lastMeF0 > 0 && pf.pitch > 0 && System.currentTimeMillis() - lastMeWall < 5000 && Math.abs(pf.pitch / lastMeF0 - 1) <= 0.15 && Classify.pitchWithin(pf.pitch, of0s, Classify.LEARN_TOL)) { spk = "Me"; Proximity.learn(this, pf, 0.3); log(String.format(Locale.US, "(same voice as Calton a moment ago – f0 %.0f, near %.2f)", pf.pitch, near)); }
       { double of0 = Proximity.ownerF0(this); if ("Me".equals(spk)) Proximity.calMe(this, near); else if (of0 > 0 && pf.pitch > 0 && Math.abs(Math.log(pf.pitch / of0)) > 0.25) Proximity.calOther(this, near); }
       long nowW = System.currentTimeMillis();
       // 0.1.9: Calton repeating a whisper = it landed, and it's HIS voice → tag Me, learn his voice, don't push that point again
       String used = "Me".equals(spk) ? null : guard.echoOf(text, nowW);
+      if (used != null && !Classify.pitchWithin(pf.pitch, of0s, Classify.CLASS_TOL)) used = null;
       if (used != null) { log("✔ Calton used the whisper (\"" + used + "\") – learning his voice"); spk = "Me"; Proximity.learn(this, pf, 0.6); }
       // 0.1.9: an unsure voice that answers the other person on topic, right after them, is most likely Calton
-      else if ("Unsure".equals(spk) && brain.lastThemEnd > 0 && u.startWall - brain.lastThemEnd < 6000 && Guard.hits(text, brain.lastThemText) >= 1) { log("(probably Calton – replied on topic)"); spk = "Me"; Proximity.learn(this, pf, 0.3); }
+      else if ("Unsure".equals(spk) && brain.lastThemEnd > 0 && u.startWall - brain.lastThemEnd < 6000 && Guard.hits(text, brain.lastThemText) >= 1 && Classify.pitchWithin(pf.pitch, of0s, Classify.CLASS_TOL)) { log("(probably Calton – replied on topic)"); spk = "Me"; Proximity.learn(this, pf, 0.3); }
       String vname = null; if (!"Me".equals(spk)) { vname = VoiceEnroll.matchNamed(this, pf); if (vname != null) { matchName = vname; meMatchAt = System.currentTimeMillis(); } }
       curSpeaker = VoiceEnroll.identify(this, spk, pf); curAt = System.currentTimeMillis(); // every utterance updates the badge
       // 0.1.16 diarization: every utterance gets a Speaker N / name tag from its voice fingerprint
-      String dlabel = null; try { Diar.Cl k = diar.assign(pf, curSpeaker); curCl = k; if (k != null) { dlabel = k.label(); if (curSpeaker == null && k.name != null) curSpeaker = k.name; if (k.name != null && k.name.equals(diar.owner) && !"Me".equals(spk)) { spk = "Me"; log("(voice anchored to " + k.name + ")"); } } } catch (Throwable t) { curCl = null; }
+      String dlabel = null; try { diar.allowOwner = Classify.allowOwner(spk, pf.pitch, of0s); Diar.Cl k = diar.assign(pf, curSpeaker); curCl = k; if (k != null) { dlabel = k.label(); if (curSpeaker == null && k.name != null) curSpeaker = k.name; if (k.name != null && k.name.equals(diar.owner) && !"Me".equals(spk) && Classify.allowOwner(spk, pf.pitch, of0s)) { spk = "Me"; log("(voice anchored to " + k.name + ")"); } } } catch (Throwable t) { curCl = null; }
       curLabel = dlabel != null ? dlabel : curSpeaker;
       try { double cut = Proximity.meCut(this); double conf = curSpeaker != null ? 1 : "Unsure".equals(spk) ? Math.min(1, Math.abs(near - cut) / 0.15) * 0.6 : 0.6;
         String uc = Guard.unclear(text); double stab = text.trim().split("\\s+").length >= 3 && uc == null ? 1 : uc == null ? 0.6 : 0.2;
         qNote(pf.overlap, conf, diar == null ? 0.5 : diar.lastMargin, stab); } catch (Throwable ignored) {}
       // 0.1.13 Lock: with ≥2 enrolled voices (owner + 1 other), unrecognised speech is discarded – not saved, not shown, not sent to Grok
       if (lockActive(this) && (curSpeaker == null || !lockAllowed(this).contains(curSpeaker))) { log("(🔒 Lock: ignored " + (curSpeaker == null ? "an unrecognised voice" : curSpeaker + " – not in the lock list") + ")"); curSpeaker = null; return; }
-      if ("Me".equals(spk)) { brain.meSeen = true; ownerKnown = true; matchName = VoiceEnroll.owner(this); meMatchAt = System.currentTimeMillis(); lastMeWall = meMatchAt; if (pf.pitch > 0) lastMeF0 = pf.pitch; guard.calton(); } else if ("Them".equals(spk)) guard.far(nowW, text);
+      if ("Me".equals(spk)) { brain.meSeen = true; ownerKnown = true; matchName = VoiceEnroll.owner(this); meMatchAt = System.currentTimeMillis(); lastMeWall = meMatchAt; if (pf.pitch > 0 && Classify.pitchWithin(pf.pitch, of0s, Classify.CLASS_TOL)) lastMeF0 = pf.pitch; guard.calton(); } else if ("Them".equals(spk)) guard.far(nowW, text);
       brain.monologue = guard.monologue(nowW);
       // 0.1.10: pure voice/mic-test phrases: log + save, never coach, never names
       if (Guard.isVoiceTest(text)) { log(spk + ": " + text + String.format(Locale.US, "   (voice test – no coaching · near %.2f · %s)", near, pf)); saveTurn("heard", spk, "en", text, u.startWall); return; }
       String why0 = Guard.unclear(text);
-      if (why0 != null) { log("(waiting out: " + why0 + " – \"" + text + "\")"); saveTurn("heard", spk, "", text, u.startWall); return; }
+      boolean shortLine = why0 != null && Classify.keepShort(why0); // 0.1.19: short replies count (marked short) instead of being dropped
+      if (why0 != null && !shortLine) { log("(waiting out: " + why0 + " – \"" + text + "\")"); saveTurn("heard", spk, "", text, u.startWall); return; }
       if ("Me".equals(spk) && near >= 0.6 && (!pf.overlap || (Proximity.ownerF0(this) > 0 && Math.abs(pf.pitch / Proximity.ownerF0(this) - 1) <= 0.15))) Proximity.learn(this, pf, 0.3); // 0.1.14: passive learning bar 0.85→0.6
       boolean english = isEnglishish(text);
       String cues = cues(text, u, spk);
@@ -386,6 +394,7 @@ public class WhisperService extends Service {
       if (vname != null) extra.add("voice sounds like " + vname); else if (curLabel != null && !"Me".equals(spk)) extra.add("voice: " + curLabel);
       String tc = brain.timingCue(spk, u.startWall); if (!tc.isEmpty()) extra.add(tc);
       if (pf.overlap) { brain.overlapAt = System.currentTimeMillis(); extra.add("Me".equals(spk) ? "talked over – Calton may have been cut off" : "talked over"); }
+      if (shortLine) extra.add(0, "short reply");
       cues = String.join(", ", extra);
       log((curLabel != null ? curLabel : spk) + ": " + text + (cues.isEmpty() ? "" : "  [" + cues + "]") + String.format(Locale.US, "   (near %.2f · %s)", near, pf));
       // ---- direct address: wake word AND near voice → fast path. Unsure/far = conversation, keep listening ----
@@ -401,7 +410,7 @@ public class WhisperService extends Service {
       }
       saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
       addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text, u.startWall, System.currentTimeMillis() - u.vadMs - (SystemClock.uptimeMillis() - u.endUp), pf, cues);
-      try { brain.noteTurn(pf.overlap); readiness = brain.readiness(); readyNoisy = brain.noisy(); String g = brain.preGate(System.currentTimeMillis(), false); readyWhy = g == null ? "" : g; } catch (Throwable ignored) {} // 0.1.15 meter
+      try { brain.noteTurn(pf.overlap); readiness = brain.readiness(); readyNoisy = brain.noisy(); String g = brain.preGate(System.currentTimeMillis(), false); readyWhy = g == null ? "" : g; log("(ready " + readiness + "% · " + (g == null ? "open – coach may decide" : "blocked: " + g) + ")"); } catch (Throwable ignored) {} // 0.1.15 meter · 0.1.19 logged per line
       // ---- 0.1.5 people memory: learn names, attach the person, learn their voice once linked ----
       String nm = People.nameIn(text, spk);
       if (nm != null && people.attach(nm, "", "heard \"" + nm + "\"")) brain.personCard = people.card;
@@ -411,7 +420,7 @@ public class WhisperService extends Service {
       if ("translate".equals(mode)) { if (!english && !"Me".equals(spk)) whisper(u, tText, text); return; }
       // 0.1.9: Street goes through the same listen-first gate as Coach (street setting: quick, but one whisper per real question)
       // ---- coach: listen first; decide only at a natural pause after the other person finishes ----
-      if ("Them".equals(spk)) { ScheduledFuture<?> pc = pendingCoach; if (pc != null) pc.cancel(false);
+      if (!"Me".equals(spk)) { ScheduledFuture<?> pc = pendingCoach; // 0.1.19: any non-Me line (Them / Unsure / short replies) if (pc != null) pc.cancel(false);
         pendingCoach = sched.schedule(() -> proc.execute(this::coachDecide), brain.pauseMs(), TimeUnit.MILLISECONDS); }
     } catch (Throwable e) { status = "Listening"; log("Pipeline error: " + e.getMessage()); }
   }

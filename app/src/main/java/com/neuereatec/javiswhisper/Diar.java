@@ -32,6 +32,7 @@ public class Diar {
     for (Map.Entry<String, double[]> e : m.entrySet()) { b.append(b.length() > 0 ? ";" : "").append(e.getKey()).append('='); for (int k = 0; k < 9; k++) b.append(k > 0 ? "," : "").append(String.format(Locale.US, "%.4f", e.getValue()[k])); } Prefs.put(c, "diar_named", b.toString()); }
   Cl byName(String n) { for (Cl k : cls) if (n.equals(k.name)) return k; return null; }
   /** Assign this utterance. known = name from the owner/enrolled recogniser (wins), or null. Returns the cluster (null if too little voice). */
+  volatile boolean allowOwner = true; // 0.1.19: set per line by the service (false for Them / off-pitch lines)
   synchronized Cl assign(Proximity.Feat f, String known) {
     if (f.pitch <= 0 || f.voicedSec < 0.4) return null;
     double[] v = vec(f); Cl best = null; double bd = 1e9, sd = 1e9;
@@ -40,8 +41,8 @@ public class Diar {
     long now = System.currentTimeMillis(); boolean held = false;
     if (known == null) {
       Cl own = owner == null ? null : byName(owner);
-      if (own != null && dist(v, own.c) < OWNER_T) { known = owner; }                         // enrolled owner: his lines collapse to him
-      else if (lastCl != null && now - lastAt < STICKY_MS && dist(v, lastCl.c) < STICKY_T) { best = lastCl; bd = 0; pend = null; } // a short pause never relabels
+      if (own != null && allowOwner && dist(v, own.c) < (Proximity.noEarbud ? Classify.OWNER_T_PHONE : OWNER_T)) { known = owner; } // 0.1.19: tighter without earbuds, never for Them/off-pitch                         // enrolled owner: his lines collapse to him
+      else if (lastCl != null && now - lastAt < STICKY_MS && dist(v, lastCl.c) < STICKY_T && (allowOwner || lastCl.name == null || !lastCl.name.equals(owner))) { best = lastCl; bd = 0; pend = null; } // a short pause never relabels
     }
     if (known != null) { pend = null; Cl k = byName(known); if (k == null) { k = new Cl(); k.id = next++; k.name = known; k.c = v.clone(); cls.add(k); }
       else if (best != null && best != k && best.name == null && bd < 0.6) { merge(best, k); } best = k; bd = 0; }

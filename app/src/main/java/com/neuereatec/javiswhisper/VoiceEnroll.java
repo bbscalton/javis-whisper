@@ -61,7 +61,7 @@ public class VoiceEnroll {
     try (OutputStream os = ef.openFileOutput()) { os.write(pcm); }
     Prefs.put(c, "enroll_f" + slot, featLine(f));
     Prefs.put(c, "enroll_n", String.valueOf(n + 1));
-    Proximity.learn(c, f, 3); // seed / reinforce the live profile from enrollment
+    Proximity.learnForce(c, f, 3); // seed / reinforce the live profile from enrollment
   }
   static byte[] readPcm(Context c, int slot) {
     try {
