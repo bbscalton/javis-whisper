@@ -15,5 +15,6 @@ public class Prefs {
   public static String s(Context c, String k, String d) { return get(c).getString(k, d); }
   public static void put(Context c, String k, String v) { get(c).edit().putString(k, v).apply(); }
   public static String server(Context c) { String u = s(c, "server", DEFAULT_SERVER).trim(); while (u.endsWith("/")) u = u.substring(0, u.length() - 1); return u; }
+  public static int i(Context c, String k, int d, int lo, int hi) { try { return Math.max(lo, Math.min(hi, Integer.parseInt(s(c, k, String.valueOf(d)).trim()))); } catch (Exception e) { return d; } }
   public static String token(Context c) { return s(c, "token", ""); }
 }

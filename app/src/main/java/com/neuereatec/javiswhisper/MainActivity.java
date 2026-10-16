@@ -89,6 +89,11 @@ public class MainActivity extends Activity {
     EditText voiceId = edit(this, "ara", Prefs.s(this, "voice_id", "ara")); c.addView(voiceId);
     voiceId.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "voice_id", voiceId.getText().toString().trim().isEmpty() ? "ara" : voiceId.getText().toString().trim().toLowerCase(Locale.US)); });
 
+    c.addView(text(this, "Latency (applies on next START): coach pause min ms · max ms · end-of-phrase frames (×20 ms)", 13, MUTED), lp(this, -1, -2, 10));
+    EditText lat = edit(this, "450 1000 22", Prefs.s(this, "pause_min", "450") + " " + Prefs.s(this, "pause_max", "1000") + " " + Prefs.s(this, "end_sil", "22")); c.addView(lat);
+    lat.setOnFocusChangeListener((v, f) -> { if (f) return; String[] p = lat.getText().toString().trim().split("[\\s,]+"); String[] k = {"pause_min", "pause_max", "end_sil"}, dv = {"450", "1000", "22"};
+      for (int j = 0; j < 3; j++) Prefs.put(this, k[j], j < p.length && p[j].matches("\\d{2,4}") ? p[j] : dv[j]); });
+
     c.addView(text(this, "Whisper volume", 14, 0xFFFFFFFF), lp(this, -1, -2, 14));
     SeekBar vol = new SeekBar(this); vol.setMax(100); vol.setProgress((int) (Float.parseFloat(Prefs.s(this, "vol", "0.35")) * 100)); c.addView(vol);
     vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() { public void onProgressChanged(SeekBar s, int v, boolean u) { Prefs.put(MainActivity.this, "vol", String.valueOf(Math.max(5, v) / 100f)); } public void onStartTrackingTouch(SeekBar s) {} public void onStopTrackingTouch(SeekBar s) {} });

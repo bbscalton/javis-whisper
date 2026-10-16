@@ -26,7 +26,7 @@ public class WhisperService extends Service {
   static final LinkedList<String> LOG = new LinkedList<>();
   static final float[] SENS_MIN = {700, 300, 150}, SENS_MARGIN = {3.2f, 2.4f, 1.8f};
   static final String[] SENS_NAME = {"Low", "Normal", "High"};
-  static final int END_SILENCE_FRAMES = 25; // 500 ms pause ends an utterance
+  static volatile int END_SILENCE_FRAMES = 22; // 0.1.11: 440 ms pause ends an utterance (was 25 = 500 ms); Settings "end_sil"
 
   public static void log(String s) {
     String line = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + s;
@@ -49,6 +49,10 @@ public class WhisperService extends Service {
 
   AudioManager am; Xai xai; Xai.Tts tts; PowerManager.WakeLock wl; Db db; Db.Session sess;
   volatile boolean heardSpeech; Chan me, them; boolean dual; int sens; String mode, prebrief, model;
+  // 0.1.11: keep one STT websocket pre-opened so the next phrase streams with no connection setup
+  volatile Xai.Stt spareStt; volatile String sttLang = "en";
+  synchronized void refillStt() { if (xai == null || !running) return; Xai.Stt s = spareStt; if (s != null && s.fresh()) return; if (s != null) s.cancel(); try { spareStt = xai.stt(sttLang); } catch (Throwable t) { spareStt = null; } }
+  synchronized Xai.Stt takeStt() { Xai.Stt s = spareStt; spareStt = null; if (s == null || !s.fresh()) { if (s != null) s.cancel(); s = xai.stt(sttLang); } try { sched.execute(this::refillStt); } catch (Throwable ignored) {} return s; }
   volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); final Guard guard = new Guard(); People people; public static volatile String settingShown = "auto"; volatile ScheduledFuture<?> pendingCoach;
   final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
@@ -99,6 +103,9 @@ public class WhisperService extends Service {
       if (Prefs.s(this, "prox_prof", "").isEmpty()) log("🎙 Voice not learned yet – javis won't coach until it has heard you. Tap 'Teach javis my voice' and say one sentence, or just talk – it learns as you go.");
       try { List<String> kt = new ArrayList<>(Arrays.asList(Guard.KEYTERMS)); for (Db.Person p : db.d().people()) if (p.name != null && kt.size() < 90) kt.add(p.name); Xai.keyterms = kt.toArray(new String[0]); } catch (Throwable ignored) {}
       sess = new Db.Session(); try { sess.version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Throwable ignored) {} sess.started = System.currentTimeMillis(); sess.mode = mode; sess.prebrief = prebrief; sess.id = db.d().add(sess);
+      brain.pauseMin = Prefs.i(this, "pause_min", 450, 200, 3000); brain.pauseMax = Prefs.i(this, "pause_max", 1000, 200, 5000); END_SILENCE_FRAMES = Prefs.i(this, "end_sil", 22, 10, 60);
+      sttLang = "translate".equals(mode) ? "" : "en"; refillStt();
+      proc.execute(() -> { long t0 = SystemClock.uptimeMillis(); try { xai.chat(model, new JSONArray().put(Learn.msg("user", "ok")), 1, 0, null); log("(warm-up: Grok link ready in " + (SystemClock.uptimeMillis() - t0) + " ms)"); } catch (Throwable t) { log("(warm-up failed: " + t.getMessage() + ")"); } });
       brain.hasBrief = !prebrief.isEmpty(); if (brain.hasBrief) brain.topic = People.clip(prebrief, 60); people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
       final String pb = prebrief; proc.execute(() -> { people.fromPrebrief(xai, model, pb); brain.goal = people.goal; brain.personCard = people.card; });
       log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
@@ -118,7 +125,7 @@ public class WhisperService extends Service {
       };
       am.registerAudioDeviceCallback(devCb, new Handler(Looper.getMainLooper()));
       sched.scheduleWithFixedDelay(this::watchdog, 2, 2, TimeUnit.SECONDS);
-      sched.scheduleWithFixedDelay(() -> { if (tts != null) tts.ensure(); }, 5, 20, TimeUnit.SECONDS); // keep the TTS socket warm
+      sched.scheduleWithFixedDelay(() -> { if (tts != null) tts.ensure(); refillStt(); }, 5, 20, TimeUnit.SECONDS); // keep the TTS socket warm
       status = "Listening";
     } catch (Throwable t) { log("Start failed: " + t); status = "Error: " + t.getMessage(); }
   }
@@ -126,6 +133,7 @@ public class WhisperService extends Service {
 
   void stopAll() {
     running = false; status = "Stopping…";
+    try { Xai.Stt s = spareStt; spareStt = null; if (s != null) s.cancel(); } catch (Throwable ignored) {}
     new Thread(() -> {
       try { if (devCb != null) am.unregisterAudioDeviceCallback(devCb); } catch (Throwable ignored) {}
       sched.shutdownNow();
@@ -246,7 +254,7 @@ public class WhisperService extends Service {
           synchronized (uttLock) { if (cur == null) {
             Utt n = new Utt(); n.owner = c; n.startWall = System.currentTimeMillis() - 300; n.duringTts = playingUntil > SystemClock.uptimeMillis();
             ScheduledFuture<?> pc = pendingCoach; if (pc != null) pc.cancel(false); // someone started talking: not a natural pause
-            n.stt = xai.stt("translate".equals(mode) ? "" : "en"); for (byte[] p : pre) { n.stt.push(p); n.pcm.write(p, 0, p.length); } pre.clear(); cur = n; silence = 0; voiced = 3; frames = 0;
+            n.stt = takeStt(); for (byte[] p : pre) { n.stt.push(p); n.pcm.write(p, 0, p.length); } pre.clear(); cur = n; silence = 0; voiced = 3; frames = 0;
           } }
         }
       } else { // this mic owns the open utterance: stream its audio to xAI STT live
