@@ -6,7 +6,7 @@ import static com.neuereatec.javiswhisper.Ui.*;
 
 public class MainActivity extends Activity {
   final Handler h = new Handler(Looper.getMainLooper());
-  LinearLayout voicesBox; TextView readyT; ProgressBar readyBar; TextView meBadge, statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
+  LinearLayout voicesBox, spkRow; TextView qualT; String spkSig = ""; TextView readyT; ProgressBar readyBar; TextView meBadge, statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
   LinearLayout settings; Button settingChip, voiceB;
   void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
@@ -26,6 +26,9 @@ public class MainActivity extends Activity {
     meBadge = text(this, "● It's you", 14, 0xFF7A8BA3); meBadge.setPadding(px(this, 10), px(this, 4), px(this, 10), px(this, 4)); st.addView(meBadge, lp(this, -2, -2, 4)); // 0.1.12 owner-voice light
     meBadge.setOnClickListener(v -> { if (WhisperService.running && WhisperService.curSpeaker != null) { alert("Recognised", "Last speaker: " + WhisperService.curSpeaker + ". Manage voices in Settings."); return; }
       Prefs.put(this, "cal_pending", "1"); alert("Identify yourself", "With the earbud in, say:\n\n“This is [your name] doing a mic test.”\n\njavis saves that voice under the name you say (encrypted, on this phone only) and shows the name here when it hears that voice again."); });
+    // 0.1.16 speakers heard this session (tap an unnamed one to name it) + rolling quality
+    spkRow = new LinearLayout(this); HorizontalScrollView hs = new HorizontalScrollView(this); hs.addView(spkRow); st.addView(hs, lp(this, -1, -2, 4));
+    qualT = text(this, "", 13, 0xFFFFFFFF); st.addView(qualT, lp(this, -1, -2, 4));
     readyT = text(this, "", 13, 0xFFFFFFFF); st.addView(readyT, lp(this, -1, -2, 6)); readyBar = bar(); readyBar.setMax(100); st.addView(readyBar, lp(this, -1, px(this, 12), 2)); // 0.1.15 context readiness meter
     routeT = text(this, "-", 13, MUTED); st.addView(routeT);
     st.addView(text(this, "Earbud mic (Me)", 12, MUTED), lp(this, -1, -2, 8)); meBar = bar(); st.addView(meBar, lp(this, -1, px(this, 10), 2));
@@ -160,12 +163,20 @@ public class MainActivity extends Activity {
   }
   CheckBox lockBox(String n) { CheckBox cb = new CheckBox(this); cb.setText("Lock"); cb.setTextColor(0xFFFFFFFF); cb.setChecked(WhisperService.lockAllowed(this).contains(n));
     cb.setOnCheckedChangeListener((v, on) -> { Set<String> s = new LinkedHashSet<>(WhisperService.lockAllowed(this)); if (on) s.add(n); else s.remove(n); Prefs.put(this, "lock_allow", s.isEmpty() ? ";" : String.join(";", s)); }); return cb; }
+  void paintSpeakers(boolean r) { Diar dz = WhisperService.diar; List<Diar.Cl> ks = r && dz != null ? dz.recent(10 * 60_000L) : new ArrayList<>();
+    StringBuilder sig = new StringBuilder(); Diar.Cl cur = WhisperService.curCl; for (Diar.Cl k : ks) sig.append(k.label()).append(k == cur ? "*" : "").append('|'); if (sig.toString().equals(spkSig)) return; spkSig = sig.toString();
+    spkRow.removeAllViews(); for (Diar.Cl k : ks) { Button b = button(this, (k == cur ? "● " : "") + k.label() + (k.name == null ? " ✎" : ""), k.name != null ? 0xFF2E7D4F : 0xFF5A4A1E); b.setTextSize(12);
+      LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(-2, -2); l.rightMargin = px(this, 6); spkRow.addView(b, l); b.setOnClickListener(v -> nameSpeaker(k)); } }
+  void nameSpeaker(Diar.Cl k) { EditText nm = edit(this, "Name for " + k.label(), k.name == null ? "" : k.name);
+    new android.app.AlertDialog.Builder(this).setTitle("Who is " + k.label() + "?").setMessage("javis will show this name for that voice and remember it next time.").setView(nm).setPositiveButton("Save", (dd, w) -> { String n = VoiceEnroll.clean(nm.getText().toString()); if (n.isEmpty()) return;
+      Diar dz = WhisperService.diar; if (dz != null) dz.name(k, n); if (!VoiceEnroll.isOwner(this, n) && k.lastF != null) VoiceEnroll.saveNamed(this, n, k.lastF);
+      WhisperService.log("✔ " + n + " – voice named (" + (k.id > 0 ? "was Speaker " + k.id : "") + ")"); spkSig = ""; paintVoices(); }).setNegativeButton("Cancel", null).show(); }
   void paintVoices() { if (voicesBox == null) return; voicesBox.removeAllViews();
     if (VoiceEnroll.has(this)) { LinearLayout or = new LinearLayout(this); or.addView(text(this, "• " + VoiceEnroll.owner(this) + " (you) – re-enroll/reset below", 14, 0xFFFFFFFF), new LinearLayout.LayoutParams(0, -2, 1)); or.addView(lockBox(VoiceEnroll.owner(this))); voicesBox.addView(or, lp(this, -1, -2, 4)); }
     for (String n : VoiceEnroll.voices(this).keySet()) { LinearLayout row = new LinearLayout(this); row.addView(text(this, "• " + n, 15, 0xFFFFFFFF), new LinearLayout.LayoutParams(0, -2, 1)); row.addView(lockBox(n));
       Button re = button(this, "Re-enroll", CARD), rm = button(this, "Remove", 0xFF8E2C2C); re.setTextSize(13); rm.setTextSize(13); row.addView(re); LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(-2, -2); l.leftMargin = px(this, 6); row.addView(rm, l);
       re.setOnClickListener(v -> { Prefs.put(this, "enroll_as", n); alert("Re-enroll " + n, "Press START (if not running) and have " + n + " say one sentence. The next voice heard is saved as " + n + "."); });
-      rm.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setTitle("Remove " + n + "?").setMessage("Only " + n + "'s voice is deleted; other enrolled voices stay.").setPositiveButton("Remove", (dd, w) -> { VoiceEnroll.removeNamed(this, n); WhisperService.log("Removed " + n + "'s voice"); paintVoices(); }).setNegativeButton("Cancel", null).show());
+      rm.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setTitle("Remove " + n + "?").setMessage("Only " + n + "'s voice is deleted; other enrolled voices stay.").setPositiveButton("Remove", (dd, w) -> { VoiceEnroll.removeNamed(this, n); Diar.removeNamed(this, n); WhisperService.log("Removed " + n + "'s voice"); paintVoices(); }).setNegativeButton("Cancel", null).show());
       voicesBox.addView(row, lp(this, -1, -2, 4)); }
     if (voicesBox.getChildCount() == 0) voicesBox.addView(text(this, "None yet – anyone can say ‘This is [name] doing a mic test’ (optional).", 13, MUTED)); }
   void alert(String title, String msg) { h.post(() -> { if (!isFinishing()) new android.app.AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); }); }
@@ -189,8 +200,12 @@ public class MainActivity extends Activity {
     routeT.setText(WhisperService.route + (WhisperService.lastTiming.isEmpty() ? "" : "\n" + WhisperService.lastTiming));
     { String who = r ? WhisperService.curSpeaker : null; boolean lit = who != null; // 0.1.13: shows the LATEST speaker until the next utterance
       boolean live = r && System.currentTimeMillis() - WhisperService.curAt < 4000;
+      String dl = r ? WhisperService.curLabel : null; if (!lit && dl != null) { meBadge.setText("● " + dl + (live ? " is talking" : " (last speaker)") + " · tap ✎ below to name"); meBadge.setTextColor(0xFFFFFFFF); meBadge.setBackgroundColor(0xFF8A6D1E); } else
       meBadge.setText(lit ? "● " + who + (live ? " is talking" : " (last speaker)") : r && WhisperService.curAt > 0 ? "○ Voice not recognised · tap for phrase" : "○ No speaker yet · tap for phrase"); if (r && WhisperService.lockActive(this)) meBadge.setText("🔒 " + meBadge.getText());
-      meBadge.setTextColor(lit ? 0xFFFFFFFF : 0xFF9AA5B4); meBadge.setBackgroundColor(lit ? 0xFF2E9E4F : 0xFF3A4556); }
+      if (lit || dl == null) { meBadge.setTextColor(lit ? 0xFFFFFFFF : 0xFF9AA5B4); meBadge.setBackgroundColor(lit ? 0xFF2E9E4F : 0xFF3A4556); } }
+    paintSpeakers(r); { int q = WhisperService.quality; qualT.setVisibility(r && q >= 0 ? View.VISIBLE : View.GONE);
+      if (q >= 0) { String lvl = q >= 75 ? "good" : q >= 50 ? "fair" : "poor"; qualT.setText("Quality: " + q + "% " + lvl + " · " + WhisperService.qTrend + (WhisperService.qWhy.isEmpty() ? "" : " (" + WhisperService.qWhy + ")"));
+        qualT.setTextColor(q >= 75 && !"dropping".equals(WhisperService.qTrend) ? 0xFF7FE09A : q >= 50 ? 0xFFF0C060 : 0xFFFF8080); } }
     { int rd = WhisperService.readiness; int vis = r ? View.VISIBLE : View.GONE; readyT.setVisibility(vis); readyBar.setVisibility(vis); readyBar.setProgress(rd);
       String why = WhisperService.readyWhy; readyT.setText("Context readiness: " + rd + "% · " + (WhisperService.readyNoisy ? "noisy – being talked over" : rd >= 80 && why.isEmpty() ? "ready to whisper" : rd >= 50 ? "building" : "still gathering") + (why.isEmpty() ? "" : " (" + why + ")"));
       int col = WhisperService.readyNoisy ? 0xFFE04848 : rd >= 80 && why.isEmpty() ? 0xFF2E9E4F : 0xFFF0A020; // red noisy · green ready · amber gathering

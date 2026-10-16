@@ -30,7 +30,7 @@ public class Proximity {
   public static class Acc {
     // 0.1.6 prosody: pitch per voiced 20 ms frame (autocorrelation over 40 ms, 70-400 Hz), voiced frame count, overlap frames
     final ArrayList<Float> pitch = new ArrayList<>(); short[] last = new short[0]; int voicedFrames; double dbSum; int overlapFrames; final ArrayList<Float> diffs = new ArrayList<>(); float lastEdb = Float.NaN;
-    double sumDbE, sumDbP, snrSum; int nE, nP, nS; double low, all, diff; float lp, prev; final ArrayList<Float> frameDb = new ArrayList<>();
+    double sumDbE, sumDbP, snrSum; int nE, nP, nS; double low, all, diff; float lp, prev; final ArrayList<Float> frameDb = new ArrayList<>(); double zcrSum; int clipFrames; final ArrayList<Float> voicedDb = new ArrayList<>();
     public void earbud(short[] f, int n, float rms) { sumDbE += db(rms); nE++; lastEdb = (float) db(rms); }
     /** phone mic frame during an earbud-owned utterance: if the phone suddenly gets much louder RELATIVE to the earbud, a second voice is talking over */
     public void phone(float rms) { sumDbP += db(rms); nP++;
@@ -39,7 +39,8 @@ public class Proximity {
     public void spectral(short[] f, int n, float rms, float noise) {
       for (int i = 0; i < n; i++) { float x = f[i]; lp += 0.11f * (x - lp); low += lp * lp; all += x * x; float d = x - prev; diff += d * d; prev = x; }
       frameDb.add((float) db(rms)); snrSum += db(rms) - db(noise); nS++;
-      if (rms > noise * 2.5f) { voicedFrames++; dbSum += db(rms); float p0 = pitchOf(last, f, n); if (p0 > 0) pitch.add(p0); }
+      if (rms > noise * 2.5f) { int zc = 0, cl = 0; for (int i = 1; i < n; i++) { if ((f[i] >= 0) != (f[i - 1] >= 0)) zc++; if (Math.abs(f[i]) > 32000) cl++; } zcrSum += zc / (double) n; if (cl > 2) clipFrames++; voicedDb.add((float) db(rms));
+        voicedFrames++; dbSum += db(rms); float p0 = pitchOf(last, f, n); if (p0 > 0) pitch.add(p0); }
       last = Arrays.copyOf(f, n);
     }
     public Feat feat() {
@@ -50,6 +51,11 @@ public class Proximity {
       if (pitch.size() >= 6) { ArrayList<Float> s = new ArrayList<>(pitch); Collections.sort(s); r.pitch = s.get(s.size() / 2); r.pitchSpread = (s.get((int) (s.size() * 0.85)) - s.get((int) (s.size() * 0.15))) / r.pitch;
         int k = (int) (pitch.size() * 0.7); ArrayList<Float> a = new ArrayList<>(pitch.subList(0, k)), b = new ArrayList<>(pitch.subList(k, pitch.size())); Collections.sort(a); Collections.sort(b);
         if (b.size() >= 3) r.pitchEnd = b.get(b.size() / 2) / a.get(a.size() / 2); }
+      if (voicedFrames > 0) { r.zcr = zcrSum / voicedFrames; r.clipFrac = clipFrames / (double) voicedFrames; }
+      if (frameDb.size() >= 10) { ArrayList<Float> s = new ArrayList<>(frameDb); Collections.sort(s); float med = s.get(s.size() / 2); int peaks = 0, lastPk = -9;
+        for (int i = 1; i < frameDb.size() - 1; i++) { float x = frameDb.get(i); if (x > med + 3 && x >= frameDb.get(i - 1) && x >= frameDb.get(i + 1) && i - lastPk >= 5) { peaks++; lastPk = i; } }
+        r.rate = voicedFrames > 5 ? peaks / Math.max(0.3, voicedFrames * 0.02) : 0; }
+      if (voicedDb.size() >= 12) { double t = 0; for (int i = voicedDb.size() - 8; i < voicedDb.size(); i++) t += voicedDb.get(i); r.tailDb = t / 8 - dbSum / voicedFrames; }
       r.voicedSec = voicedFrames * 0.02; r.loudDb = voicedFrames > 0 ? dbSum / voicedFrames : 0; r.overlap = overlapFrames >= 15;
       return r;
     }
@@ -64,7 +70,8 @@ public class Proximity {
     for (int lag = minLag + 1; lag < maxLag; lag++) if (rr[lag] >= 0.9 * best && rr[lag] >= rr[lag - 1] && rr[lag] >= rr[lag + 1]) return 16000f / lag; // first strong peak = avoids octave errors
     return 0;
   }
-  public static class Feat { public double dbDiff = Double.NaN, lowRatio, hfRatio, modDb, snrDb, pitch, pitchSpread, pitchEnd = 1, voicedSec, loudDb; public boolean overlap;
+  public static class Feat { public double zcr, rate, tailDb, clipFrac; // 0.1.16 voice-fingerprint extras
+    public double dbDiff = Double.NaN, lowRatio, hfRatio, modDb, snrDb, pitch, pitchSpread, pitchEnd = 1, voicedSec, loudDb; public boolean overlap;
     public String toString() { return String.format(Locale.US, "snr%.0f Δ%.1f low%.2f hf%.2f mod%.0f f0 %.0f", snrDb, dbDiff, lowRatio, hfRatio, modDb, pitch); } }
   static double db(float rms) { return 20 * Math.log10(Math.max(rms, 1)); }
   static double sig(double x) { return 1 / (1 + Math.exp(-x)); }
