@@ -103,7 +103,8 @@ public class Brain {
     if ("Them".equals(spk)) { double[] v = fv(f); double pm = partnerMatch(v); lastThemPartner = partner == null || pm >= 0.5;
       tag = partner == null ? "Them" : lastThemPartner ? "Partner" : "Other"; lastThemText = text; lastThemEnd = endWall; lastThemFeat = v; }
     else if ("Me".equals(spk)) { String why = checkMembership(text, startWall, 0); if (why != null) WhisperService.log("🤝 Calton is in this conversation (" + why + ")"); }
-    window.add("[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text); while (window.size() > 40) window.remove(0);
+    String wl = "[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text; window.add(wl); while (window.size() > 40) window.remove(0);
+    if (chunkLine(wl, text, startWall)) { sinceShift = 0; WhisperService.log("(✂ new topic chunk – content shifted)"); }
     if ("Me".equals(spk)) { lastMeAt = System.currentTimeMillis(); lastMeEnd = endWall; }
     if (!spk.equals(lastSpk)) speakerTurns++; lastSpk = spk; turnsSinceTopic++;
   }
@@ -113,7 +114,7 @@ public class Brain {
     int from = Math.max(0, window.size() - (sinceShift + 2)); // 0.1.15 decay: after a hard topic shift only the new lines (+2 bridge) count
     for (String l : window.subList(from, window.size())) { if (l.startsWith("[Them") || l.startsWith("[Partner") || l.startsWith("[Other")) them++; else if (l.startsWith("[Me")) me++; int i = l.indexOf("] "); if (i > 0) words += l.substring(i + 2).trim().split("\\s+").length; }
     int n = window.size() - from; double s = 25 * Math.min(1, n / 6.0) + 25 * Math.min(1, them / 3.0) + 15 * Math.min(1, me / 2.0) + 15 * Math.min(1, words / 120.0)
-      + 20 * (topic == null || topic.isEmpty() ? 0 : Math.max(0.3, Math.min(1, confidence)));
+      + 20 * (topic == null || topic.isEmpty() ? 0 : Math.max(0.3, Math.min(1, confidence)) * (chunks.isEmpty() || !chunks.get(chunks.size() - 1).topic.isEmpty() ? 1 : 0.5)); // 0.1.16: half credit until the current chunk has its own topic
     if (hasBrief) s = Math.max(s, 15 + s * 0.85); // a briefing gives a head start
     long idle = lastHeardAt == 0 ? 0 : System.currentTimeMillis() - lastHeardAt; if (idle > 60_000) s *= Math.max(0.4, 1 - 0.6 * (idle - 60_000) / 240_000.0); // stale context eases down
     if (noisy()) s *= 0.7; // talked-over turns = less usable signal
@@ -122,7 +123,27 @@ public class Brain {
   int sinceShift = 1000; long lastHeardAt; final ArrayDeque<Boolean> ovl = new ArrayDeque<>();
   synchronized void noteTurn(boolean overlap) { lastHeardAt = System.currentTimeMillis(); sinceShift++; ovl.addLast(overlap); while (ovl.size() > 6) ovl.removeFirst(); }
   synchronized boolean noisy() { int k = 0; for (boolean b : ovl) if (b) k++; return ovl.size() >= 3 && k * 2 >= ovl.size(); }
-  synchronized void resetCtx() { sinceShift = 1000; lastHeardAt = 0; ovl.clear(); window.clear(); speakerTurns = 0; turnsSinceTopic = 0; topic = ""; confidence = 0; openQuestion = ""; lastSpk = ""; }
+  // ---- 0.1.16 semantic chunking: the transcript is cut into topic-sized chunks (long pause, hard content shift, or size cap) ----
+  static class Chunk { final List<String> lines = new ArrayList<>(); final Set<String> kw = new HashSet<>(); String topic = ""; int words; String why = ""; }
+  final List<Chunk> chunks = new ArrayList<>(); long lastLineWall; int lowOverlapRun;
+  static final Set<String> CHUNK_STOP = new HashSet<>(Arrays.asList("the","a","an","and","or","but","so","to","of","in","on","at","for","is","are","was","were","be","it","its","that","this","i","you","he","she","we","they","me","my","your","our","what","yeah","yes","no","okay","ok","just","like","do","did","have","has","not","with","about","there","here","then","well","um","uh","can","will","would","going","know","think","get","got"));
+  static Set<String> kws(String t) { Set<String> s = new HashSet<>(); for (String w : t.toLowerCase(Locale.US).replaceAll("[^a-z0-9' ]", " ").split("\\s+")) if (w.length() > 2 && !CHUNK_STOP.contains(w)) s.add(w); return s; }
+  /** returns true if a NEW chunk was opened because the content shifted hard. */
+  synchronized boolean chunkLine(String line, String text, long startWall) {
+    Set<String> k = kws(text); Chunk c = chunks.isEmpty() ? null : chunks.get(chunks.size() - 1); String why = null;
+    if (c == null) why = "start";
+    else if (lastLineWall > 0 && startWall - lastLineWall > 8000) why = "long pause";
+    else if (c.lines.size() >= 10 || c.words >= 180) why = "size";
+    else if (c.lines.size() >= 3 && k.size() >= 3) { int inter = 0; for (String w : k) if (c.kw.contains(w)) inter++; lowOverlapRun = inter == 0 ? lowOverlapRun + 1 : 0; if (lowOverlapRun >= 2) why = "content shift"; }
+    if (why != null) { Chunk n = new Chunk(); n.why = why; if (c != null && "content shift".equals(why) && c.lines.size() > 0) { n.lines.add(c.lines.get(c.lines.size() - 1)); c.lines.remove(c.lines.size() - 1); } chunks.add(n); while (chunks.size() > 8) chunks.remove(0); c = n; lowOverlapRun = 0; }
+    c.lines.add(line); c.kw.addAll(k); c.words += text.split("\\s+").length; lastLineWall = startWall;
+    return "content shift".equals(why);
+  }
+  synchronized String chunkedTranscript() { if (chunks.isEmpty()) return String.join("\n", window.subList(Math.max(0, window.size() - 16), window.size()));
+    StringBuilder b = new StringBuilder(); int n = chunks.size();
+    for (int i = Math.max(0, n - 4); i < n - 1; i++) { Chunk c = chunks.get(i); b.append("— earlier chunk ").append(i - n + 1).append(c.topic.isEmpty() ? "" : " (topic: " + c.topic + ")").append(" —\n").append(String.join("\n", c.lines.subList(Math.max(0, c.lines.size() - 3), c.lines.size()))).append("\n"); }
+    Chunk cur = chunks.get(n - 1); b.append("— CURRENT chunk (judge the topic from this; opened by: ").append(cur.why).append(") —\n").append(String.join("\n", cur.lines)); return b.toString(); }
+  synchronized void resetCtx() { chunks.clear(); lastLineWall = 0; lowOverlapRun = 0; sinceShift = 1000; lastHeardAt = 0; ovl.clear(); window.clear(); speakerTurns = 0; turnsSinceTopic = 0; topic = ""; confidence = 0; openQuestion = ""; lastSpk = ""; }
   /** Cheap pre-gate before spending an LLM call. */
   String preGate(long now, boolean calTalking) {
     if (calTalking) return "Calton is talking";
@@ -159,7 +180,7 @@ public class Brain {
     if (!goal.isEmpty()) sys += "\nCALTON'S GOAL: " + goal + " – steer him toward it.";
     if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(personCard, 400);
     String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nWhat helps Calton: " + People.clip(learned, 250);
-    String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far (oldest first, live speech recognition, may have errors):\n" + String.join("\n", window.subList(Math.max(0, window.size() - 16), window.size()));
+    String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far, split into topic chunks (oldest first, live speech recognition, may have errors). If the CURRENT chunk is on a different subject than the previous state, report the NEW topic:\n" + chunkedTranscript();
     return new JSONArray().put(Learn.msg("system", sys)).put(Learn.msg("user", u));
   }
   /** Apply the model's state update and run the final coach gate. Returns text to whisper, or null. */
@@ -168,7 +189,7 @@ public class Brain {
     if (!similar(newTopic, topic)) { topicSince = now; turnsSinceTopic = 0; if (topic != null && !topic.isEmpty()) sinceShift = 0; } // 0.1.15: hard topic shift → meter drops and rebuilds
     String ms = j.optString("setting", ""); if (si(ms) != 4 || "casual".equals(ms)) { if (ms.equals(modelSetting)) modelAgree++; else { modelSetting = j.optDouble("setting_conf", 0) >= 0.6 ? ms : ""; modelAgree = modelSetting.isEmpty() ? 0 : 1; } }
     lastTone = j.optString("tone", ""); lastMood = j.optString("their_mood", "");
-    topic = newTopic; confidence = j.optDouble("confidence", 0); try { WhisperService.readiness = readiness(); } catch (Throwable ignored) {} openQuestion = j.optString("open_question", "");
+    topic = newTopic; confidence = j.optDouble("confidence", 0); synchronized (this) { if (!chunks.isEmpty()) chunks.get(chunks.size() - 1).topic = newTopic; } try { WhisperService.readiness = readiness(); } catch (Throwable ignored) {} openQuestion = j.optString("open_question", "");
     if (j.optDouble("calton_engaged", 1) < 0.25) return null;   // model thinks he isn't really in this conversation
     String say = j.optString("say", "SKIP").trim(), kind = j.optString("kind", "none");
     if (say.isEmpty() || say.toUpperCase(Locale.US).startsWith("SKIP") || "none".equals(kind)) return null;
