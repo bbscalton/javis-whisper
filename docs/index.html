@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.10/JavisWhisper.apk">⬇ Download 0.1.10</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.11/JavisWhisper.apk">⬇ Download 0.1.11</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,14 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.10 – knows your voice and your name</h3>One-time voice enrollment (“This is Calton doing the mic test”, kept encrypted on the phone only), hears “Calton” not “Carlton”, no more false “mic is silent” in normal pauses, never invents people from test words, no coaching on mic tests, honest summaries.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.10/JavisWhisper.apk">⬇ Download 0.1.10</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.11 – faster replies</h3>Shorter coach pause, snappier end-of-phrase detection, warmed-up connections and a pre-opened listen channel for a quicker first word, plus new latency settings you can tune.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.11/JavisWhisper.apk">⬇ Download 0.1.11</a></div>
 </div></section>
+<div id="v0111"><section><h2>What's new in 0.1.11</h2><ul>
+<li><b>Faster coach response.</b> After the other person stops, javis now waits 0.45–1 s (was 0.7–1.8 s) before deciding to whisper.</li>
+<li><b>Snappier end-of-phrase.</b> A 440 ms pause now ends a phrase (was 500 ms).</li>
+<li><b>Quicker first word.</b> The Grok link is warmed up when you press START, and the next listen channel is opened ahead of time so new phrases stream with no connection delay.</li>
+<li><b>Tunable.</b> Settings → Latency: coach pause min/max (ms) and end-of-phrase frames (×20 ms). Defaults 450 · 1000 · 22.</li>
+</ul></section></div>
 <div id="v0110"><section><h2>What's new in 0.1.10</h2><ul>
 <li><b>Voice enrollment, once.</b> On first START javis asks you to say “This is Calton doing the mic test.” That short clip and its voice features are kept <b>encrypted on your phone only</b> (1–3 samples; re-enroll in Settings, long-press to reset) so “Me” is right from the first line. It is never uploaded – Send to PC only carries the numbers. Conversations are still never recorded.</li>
 <li><b>Your name.</b> “Carlton” and self-introductions like “this is carbon” are heard as <b>Calton</b>. Other uses of “carbon” are left alone.</li>
@@ -92,4 +98,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.10 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.11 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>

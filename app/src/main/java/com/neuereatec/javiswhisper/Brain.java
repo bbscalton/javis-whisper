@@ -43,7 +43,8 @@ public class Brain {
 
   // ---- 0.1.5 adaptive pause: slow talkers get a longer beat before javis decides ----
   double themGapEma = 900; long lastThemStart;
-  long pauseMs() { return Math.max(700, Math.min(1800, Math.round(themGapEma * 1.3))); }
+  volatile long pauseMin = 450, pauseMax = 1000; // 0.1.11: Settings-backed (was 700/1800)
+  long pauseMs() { return Math.max(pauseMin, Math.min(Math.max(pauseMin, pauseMax), Math.round(themGapEma * 1.3))); }
   String personCard = "", goal = ""; boolean hasBrief; volatile boolean meSeen, monologue;
   // ---- 0.1.6 prosody: each speaker's own baseline, so cues are RELATIVE ("louder than he usually is"), never absolute guesses ----
   final Map<String, double[]> base = new HashMap<>(); // tag -> pitch, loudDb, rate(words/s), n
