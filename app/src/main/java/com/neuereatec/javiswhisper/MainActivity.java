@@ -102,9 +102,17 @@ public class MainActivity extends Activity {
     lat.setOnFocusChangeListener((v, f) -> { if (f) return; String[] p = lat.getText().toString().trim().split("[\\s,]+"); String[] k = {"pause_min", "pause_max", "end_sil"}, dv = {"450", "1000", "22"};
       for (int j = 0; j < 3; j++) Prefs.put(this, k[j], j < p.length && p[j].matches("\\d{2,4}") ? p[j] : dv[j]); });
 
+    // 0.1.18 resume after restart
+    c.addView(text(this, "Resume the last conversation if it was active within (minutes, 0 = always start fresh)", 13, MUTED), lp(this, -1, -2, 10));
+    EditText res = edit(this, "30", Prefs.s(this, "resume_min", "30")); res.setInputType(android.text.InputType.TYPE_CLASS_NUMBER); c.addView(res);
+    res.setOnFocusChangeListener((v, f) -> { if (!f) { String t = res.getText().toString().trim(); Prefs.put(this, "resume_min", t.matches("\\d{1,3}") ? t : "30"); } });
+    Button fresh = button(this, "Start fresh next time (don't resume)", CARD); c.addView(fresh, lp(this, -1, -2, 6));
+    fresh.setOnClickListener(v -> { Prefs.put(this, "start_fresh_once", "1"); alert("Start fresh", WhisperService.running ? "Stop and START again – the next session begins a new conversation." : "The next START begins a new conversation (history stays saved)."); });
     c.addView(text(this, "Whisper volume", 14, 0xFFFFFFFF), lp(this, -1, -2, 14));
     SeekBar vol = new SeekBar(this); vol.setMax(100); vol.setProgress((int) (Float.parseFloat(Prefs.s(this, "vol", "0.35")) * 100)); c.addView(vol);
     vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() { public void onProgressChanged(SeekBar s, int v, boolean u) { Prefs.put(MainActivity.this, "vol", String.valueOf(Math.max(5, v) / 100f)); } public void onStartTrackingTouch(SeekBar s) {} public void onStopTrackingTouch(SeekBar s) {} });
+    Switch av = new Switch(this); av.setText("Louder whisper in noisy places (adaptive volume)"); av.setTextColor(0xFFFFFFFF); av.setChecked(!"0".equals(Prefs.s(this, "adapt_vol", "1"))); c.addView(av, lp(this, -1, -2, 8));
+    av.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "adapt_vol", on ? "1" : "0"));
     Button sensB = button(this, "", CARD); c.addView(sensB, lp(this, -1, -2, 10));
     Runnable ps = () -> sensB.setText("Mic sensitivity: " + WhisperService.SENS_NAME[Integer.parseInt(Prefs.s(this, "sens", "1"))]); ps.run();
     sensB.setOnClickListener(v -> { Prefs.put(this, "sens", String.valueOf((Integer.parseInt(Prefs.s(this, "sens", "1")) + 1) % 3)); ps.run(); });
