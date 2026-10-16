@@ -6,7 +6,7 @@ import static com.neuereatec.javiswhisper.Ui.*;
 
 public class MainActivity extends Activity {
   final Handler h = new Handler(Looper.getMainLooper());
-  TextView statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
+  TextView meBadge, statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
   LinearLayout settings; Button settingChip, voiceB;
   void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
@@ -22,13 +22,16 @@ public class MainActivity extends Activity {
 
     LinearLayout st = card(this); root.addView(st, lp(this, -1, -2, 14));
     statusT = text(this, "Stopped", 20, 0xFFFFFFFF); st.addView(statusT);
+    meBadge = text(this, "● It's you", 14, 0xFF7A8BA3); meBadge.setPadding(px(this, 10), px(this, 4), px(this, 10), px(this, 4)); st.addView(meBadge, lp(this, -2, -2, 4)); // 0.1.12 owner-voice light
+    meBadge.setOnClickListener(v -> { if (WhisperService.running && System.currentTimeMillis() - WhisperService.meMatchAt < 4000) { alert("Recognised", "javis recognises " + WhisperService.matchName + "'s voice right now."); return; }
+      Prefs.put(this, "cal_pending", "1"); alert("Identify yourself", "With the earbud in, say:\n\n“This is [your name] doing a mic test.”\n\njavis saves that voice under the name you say (encrypted, on this phone only) and shows the name here when it hears that voice again."); });
     routeT = text(this, "-", 13, MUTED); st.addView(routeT);
     st.addView(text(this, "Earbud mic (Me)", 12, MUTED), lp(this, -1, -2, 8)); meBar = bar(); st.addView(meBar, lp(this, -1, px(this, 10), 2));
     st.addView(text(this, "Phone mic (Them)", 12, MUTED), lp(this, -1, -2, 6)); themBar = bar(); st.addView(themBar, lp(this, -1, px(this, 10), 2));
 
-    voiceB = button(this, "🎙 Voice not enrolled – press START, then say: “This is Calton doing the mic test.”", 0xFFEF6C00); voiceB.setTextSize(13); root.addView(voiceB, lp(this, -1, -2, 10));
+    voiceB = button(this, "🎙 Voice not enrolled – press START, then say: “This is [your name] doing a mic test.”", 0xFFEF6C00); voiceB.setTextSize(13); root.addView(voiceB, lp(this, -1, -2, 10));
     voiceB.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Press START first, then tap this again and say one normal sentence."); return; }
-      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is Calton doing the mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
+      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is [your name] doing a mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
     LinearLayout modes = new LinearLayout(this); root.addView(modes, lp(this, -1, -2, 12));
     for (String[] m : new String[][]{{"coach", "Coach"}, {"translate", "Translate"}, {"street", "Street"}}) {
       Button bt = button(this, m[1], CARD); modeBtns.put(m[0], bt); LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, -2, 1); l.setMargins(px(this, 3), 0, px(this, 3), 0); modes.addView(bt, l);
@@ -38,12 +41,12 @@ public class MainActivity extends Activity {
     Button chip = button(this, "", CARD); chip.setTextSize(14); root.addView(chip, lp(this, -1, -2, 8)); settingChip = chip; paintChip();
     chip.setOnClickListener(v -> { String[] o = {"auto", "negotiation", "sale", "meeting", "call", "casual", "family", "street"}; String cur = Prefs.s(this, "setting", "auto"); int i = 0;
       for (int k = 0; k < o.length; k++) if (o[k].equals(cur)) i = k; Prefs.put(this, "setting", o[(i + 1) % o.length]); paintChip(); WhisperService.log("Setting → " + o[(i + 1) % o.length]); });
-    EditText brief = edit(this, "Pre-brief: who are you talking to, what about? (e.g. 'Bank manager, loan for crane truck')", Prefs.s(this, "prebrief", ""));
+    EditText brief = edit(this, "Pre-brief (optional): who are you talking to, what about? (e.g. 'Bank manager, loan for crane truck')", Prefs.s(this, "prebrief", ""));
     brief.setMinLines(2); root.addView(brief, lp(this, -1, -2, 10));
     brief.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "prebrief", brief.getText().toString()); });
 
     startB = button(this, "START listening", GREEN); bar.addView(startB, lp(this, -1, px(this, 60), 6));
-    startB.setOnClickListener(v -> { Prefs.put(this, "prebrief", brief.getText().toString()); if (WhisperService.running) stopSvc(); else startSvc(); });
+    startB.setOnClickListener(v -> { Prefs.put(this, "prebrief", brief.getText().toString()); if (WhisperService.running) stopSvc(); else if ("1".equals(Prefs.s(this, "require_brief", "0")) && brief.getText().toString().trim().isEmpty()) alert("Briefing required", "Add a short pre-brief (who / what about), or turn off ‘Always require a briefing’ in Settings."); else startSvc(); });
 
     LinearLayout row = new LinearLayout(this); root.addView(row, lp(this, -1, -2, 10));
     Button rev = button(this, "Review history", BLUE), set = button(this, "Settings", CARD);
@@ -103,13 +106,15 @@ public class MainActivity extends Activity {
     Switch dual = new Switch(this); dual.setText("Use phone mic for the other person (labels Me / Them)"); dual.setTextColor(0xFFFFFFFF); dual.setChecked("1".equals(Prefs.s(this, "dual", "1"))); c.addView(dual, lp(this, -1, -2, 10));
     dual.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "dual", on ? "1" : "0"));
     Button cal = button(this, Prefs.s(this, "prox_prof", "").isEmpty() ? "Enroll my voice" : "Re-enroll my voice (" + VoiceEnroll.count(this) + "/3 samples · long-press to reset)", CARD); c.addView(cal, lp(this, -1, -2, 10));
-    cal.setOnLongClickListener(v -> { VoiceEnroll.clear(this); Prefs.put(this, "prox_prof", ""); alert("Voice samples removed", "Press START and say: ‘This is Calton doing the mic test.’"); return true; });
+    cal.setOnLongClickListener(v -> { VoiceEnroll.clear(this); Prefs.put(this, "prox_prof", ""); alert("Voice samples removed", "Press START and say: ‘This is [your name] doing a mic test.’"); return true; });
     cal.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Optional – javis also learns your voice by itself from your ‘Whisper, …’ commands. Press START first, then tap this and say one normal sentence with the earbud in."); return; }
-      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is Calton doing the mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
+      Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is [your name] doing a mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
     Switch voice = new Switch(this); voice.setText("Speak whispers in earbud (off = text only)"); voice.setTextColor(0xFFFFFFFF); voice.setChecked(!"0".equals(Prefs.s(this, "voice", "1"))); c.addView(voice, lp(this, -1, -2, 10));
     voice.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "voice", on ? "1" : "0"));
 
     c.addView(text(this, "PC01 backup sync (optional, off by default)", 16, 0xFFFFFFFF), lp(this, -1, -2, 18));
+    Switch reqB = new Switch(this); reqB.setText("Always require a briefing before START (off = optional; javis uses recent context)"); reqB.setTextColor(0xFFFFFFFF); reqB.setChecked("1".equals(Prefs.s(this, "require_brief", "0"))); c.addView(reqB, lp(this, -1, -2, 6));
+    reqB.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "require_brief", on ? "1" : "0"));
     Switch sync = new Switch(this); sync.setText("Upload finished sessions (text) to PC01"); sync.setTextColor(0xFFFFFFFF); sync.setChecked("1".equals(Prefs.s(this, "sync", "0"))); c.addView(sync, lp(this, -1, -2, 6));
     sync.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "sync", on ? "1" : "0"));
     EditText url = edit(this, "Server URL", Prefs.s(this, "server", Prefs.DEFAULT_SERVER)); c.addView(url, lp(this, -1, -2, 6));
@@ -141,7 +146,7 @@ public class MainActivity extends Activity {
           catch (Exception e) { h.post(() -> { startB.setEnabled(true); alert("Can't get the xAI key", reason(e)); }); } }).start(); return; }
       settings.setVisibility(View.VISIBLE); alert("Setup needed", "Pair with PC01 (Settings → 6-digit code) – that loads the xAI key automatically. Or paste an xAI key in Settings."); return; }
     startForegroundService(new Intent(this, WhisperService.class).setAction(WhisperService.ACTION_START));
-    if (VoiceEnroll.needGuided(this)) alert("Voice enrollment (once)", "With the earbud in, say:\n\n“This is Calton doing the mic test.”\n\njavis keeps this short clip encrypted on this phone only (never uploaded, conversations are never recorded) so it knows your voice from the first line.");
+    if (VoiceEnroll.needGuided(this)) alert("Voice enrollment (once)", "With the earbud in, say:\n\n“This is [your name] doing a mic test.”\n\njavis keeps this short clip encrypted on this phone only (never uploaded, conversations are never recorded) so it knows your voice from the first line.");
   }
   void alert(String title, String msg) { h.post(() -> { if (!isFinishing()) new android.app.AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); }); }
   static String reason(Exception e) {
@@ -162,6 +167,9 @@ public class MainActivity extends Activity {
     boolean r = WhisperService.running;
     statusT.setText(WhisperService.status + (r ? " · " + mmss(System.currentTimeMillis() - WhisperService.sessionStart) : ""));
     routeT.setText(WhisperService.route + (WhisperService.lastTiming.isEmpty() ? "" : "\n" + WhisperService.lastTiming));
+    { boolean lit = r && System.currentTimeMillis() - WhisperService.meMatchAt < 4000; // lights up while Calton's voice is matched
+      meBadge.setText(lit ? "● " + WhisperService.matchName + " – voice recognised" : "○ Voice not recognised · tap for phrase");
+      meBadge.setTextColor(lit ? 0xFFFFFFFF : 0xFF9AA5B4); meBadge.setBackgroundColor(lit ? 0xFF2E9E4F : 0xFF3A4556); }
     meBar.setProgress(meter(WhisperService.levelMe)); themBar.setProgress(meter(WhisperService.levelThem));
     startB.setText(r ? "STOP" : "START listening"); startB.setBackground(round(r ? RED : GREEN, px(this, 12)));
     paintChip(); voiceB.setVisibility(VoiceEnroll.needGuided(this) ? View.VISIBLE : View.GONE);

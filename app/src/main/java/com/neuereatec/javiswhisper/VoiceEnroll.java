@@ -12,7 +12,18 @@ import java.util.*;
  */
 public class VoiceEnroll {
   static final int MAX = 3, SR = 16000;
-  static final String PHRASE = "This is Calton doing the mic test";
+  static final String PHRASE = "This is [your name] doing a mic test";
+  // 0.1.12 name-driven enrollment: "This is <name> doing a/the mic test" → voice saved under that name (persisted, encrypted prefs)
+  static final java.util.regex.Pattern NAMED = java.util.regex.Pattern.compile("(?i)\\b(?:this is|it's|it is)\\s+([\\p{L}][\\p{L}'-]*(?:\\s+[\\p{L}][\\p{L}'-]*)?)\\s+doing\\s+(?:a|the)\\s+mic\\s+test");
+  static String spokenName(String text) { if (text == null) return null; java.util.regex.Matcher m = NAMED.matcher(text); if (!m.find()) return null; String n = m.group(1).trim(); if (n.length() < 2 || n.length() > 30) return null; StringBuilder b = new StringBuilder(); for (String w : n.split("\\s+")) b.append(b.length() > 0 ? " " : "").append(Character.toUpperCase(w.charAt(0))).append(w.substring(1)); return b.toString(); }
+  static String owner(Context c) { return Prefs.s(c, "owner_name", "Calton"); }
+  static boolean isOwner(Context c, String name) { String o = owner(c).toLowerCase(Locale.US), n = name.toLowerCase(Locale.US); return n.equals(o) || n.startsWith(o + " ") || ("calton".equals(o) && (n.equals("carlton") || n.equals("carbon"))); }
+  /** other people's named voices: name -> feature line, kept in encrypted prefs ("voices" = name=feat;name=feat). */
+  static Map<String, String> voices(Context c) { Map<String, String> m = new LinkedHashMap<>(); for (String e : Prefs.s(c, "voices", "").split(";")) { int i = e.indexOf('='); if (i > 0) m.put(e.substring(0, i), e.substring(i + 1)); } return m; }
+  static synchronized void saveNamed(Context c, String name, Proximity.Feat f) { Map<String, String> m = voices(c); m.remove(name); m.put(name, featLine(f)); while (m.size() > 12) m.remove(m.keySet().iterator().next());
+    StringBuilder b = new StringBuilder(); for (Map.Entry<String, String> e : m.entrySet()) b.append(b.length() > 0 ? ";" : "").append(e.getKey().replace(";", "").replace("=", "")).append('=').append(e.getValue()); Prefs.put(c, "voices", b.toString()); }
+  /** best-matching named voice (≥0.62 similarity) or null. */
+  static String matchNamed(Context c, Proximity.Feat f) { String best = null; double bs = 0.62; for (Map.Entry<String, String> e : voices(c).entrySet()) { double s = featSim(e.getValue(), f); if (s > bs) { bs = s; best = e.getKey(); } } return best; }
   /** Successful Me bands from Calton's 11:32 voice test (snr / Δ / low / hf / mod / f0) – tolerance hints. */
   static final double[] SEED = {15, -5.0, 0.27, 0.11, 40, 110};
 
@@ -22,7 +33,7 @@ public class VoiceEnroll {
     return n;
   }
   static boolean has(Context c) { return count(c) > 0 || !Prefs.s(c, "prox_prof", "").isEmpty(); }
-  static boolean needGuided(Context c) { return count(c) == 0; }
+  static boolean needGuided(Context c) { return !has(c); } // 0.1.12: a saved voice profile also counts – no mic test every launch
   static void clear(Context c) {
     for (int i = 0; i < MAX; i++) { new File(dir(c), "s" + i + ".pcm.enc").delete(); Prefs.put(c, "enroll_f" + i, ""); }
     Prefs.put(c, "enroll_n", "0");
