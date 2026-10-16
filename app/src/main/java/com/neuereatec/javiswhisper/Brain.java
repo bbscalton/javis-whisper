@@ -103,17 +103,21 @@ public class Brain {
     if ("Them".equals(spk)) { double[] v = fv(f); double pm = partnerMatch(v); lastThemPartner = partner == null || pm >= 0.5;
       tag = partner == null ? "Them" : lastThemPartner ? "Partner" : "Other"; lastThemText = text; lastThemEnd = endWall; lastThemFeat = v; }
     else if ("Me".equals(spk)) { String why = checkMembership(text, startWall, 0); if (why != null) WhisperService.log("🤝 Calton is in this conversation (" + why + ")"); }
-    String wl = "[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text; window.add(wl); while (window.size() > 40) window.remove(0);
+    if ("Me".equals(spk)) quickLabel(text);
+    String wl = "[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text; window.add(wl); while (window.size() > 40) { restored.remove(window.get(0)); window.remove(0); }
+    trackTopic(spk, text);
     if (chunkLine(wl, text, startWall)) { sinceShift = 0; WhisperService.log("(✂ new topic chunk – content shifted)"); }
     if ("Me".equals(spk)) { lastMeAt = System.currentTimeMillis(); lastMeEnd = endWall; }
     if (!spk.equals(lastSpk)) speakerTurns++; lastSpk = spk; turnsSinceTopic++;
   }
   /** 0.1.15 readiness meter (0–100): how much real context the coach has – turns, the other person's lines, Calton's lines, words, inferred topic. Heuristic. */
   synchronized int readiness() {
-    int them = 0, me = 0, words = 0;
+    staleCheck(System.currentTimeMillis());
+    double them = 0, me = 0, words = 0, n = 0;
     int from = Math.max(0, window.size() - (sinceShift + 2)); // 0.1.15 decay: after a hard topic shift only the new lines (+2 bridge) count
-    for (String l : window.subList(from, window.size())) { if (l.startsWith("[Them") || l.startsWith("[Partner") || l.startsWith("[Other")) them++; else if (l.startsWith("[Me")) me++; int i = l.indexOf("] "); if (i > 0) words += l.substring(i + 2).trim().split("\\s+").length; }
-    int n = window.size() - from; double s = 25 * Math.min(1, n / 6.0) + 25 * Math.min(1, them / 3.0) + 15 * Math.min(1, me / 2.0) + 15 * Math.min(1, words / 120.0)
+    for (String l : window.subList(from, window.size())) { double w = restored.contains(l) ? RESTORED_W : 1; n += w; // 0.1.18: lines replayed after a restart count at half weight
+      if (l.startsWith("[Them") || l.startsWith("[Partner") || l.startsWith("[Other")) them += w; else if (l.startsWith("[Me")) me += w; int i = l.indexOf("] "); if (i > 0) words += w * l.substring(i + 2).trim().split("\\s+").length; }
+    double s = 25 * Math.min(1, n / 5.0) + 25 * Math.min(1, them / 2.5) + 15 * Math.min(1, me / 1.5) + 15 * Math.min(1, words / 90.0) // 0.1.18 faster ramp (was 6 lines / 3 theirs / 2 his / 120 words)
       + 20 * (topic == null || topic.isEmpty() ? 0 : Math.max(0.3, Math.min(1, confidence)) * (chunks.isEmpty() || !chunks.get(chunks.size() - 1).topic.isEmpty() ? 1 : 0.5)); // 0.1.16: half credit until the current chunk has its own topic
     if (hasBrief) s = Math.max(s, 15 + s * 0.85); // a briefing gives a head start
     long idle = lastHeardAt == 0 ? 0 : System.currentTimeMillis() - lastHeardAt; if (idle > 60_000) s *= Math.max(0.4, 1 - 0.6 * (idle - 60_000) / 240_000.0); // stale context eases down
@@ -143,7 +147,7 @@ public class Brain {
     StringBuilder b = new StringBuilder(); int n = chunks.size();
     for (int i = Math.max(0, n - 4); i < n - 1; i++) { Chunk c = chunks.get(i); b.append("— earlier chunk ").append(i - n + 1).append(c.topic.isEmpty() ? "" : " (topic: " + c.topic + ")").append(" —\n").append(String.join("\n", c.lines.subList(Math.max(0, c.lines.size() - 3), c.lines.size()))).append("\n"); }
     Chunk cur = chunks.get(n - 1); b.append("— CURRENT chunk (judge the topic from this; opened by: ").append(cur.why).append(") —\n").append(String.join("\n", cur.lines)); return b.toString(); }
-  synchronized void resetCtx() { chunks.clear(); lastLineWall = 0; lowOverlapRun = 0; sinceShift = 1000; lastHeardAt = 0; ovl.clear(); window.clear(); speakerTurns = 0; turnsSinceTopic = 0; topic = ""; confidence = 0; openQuestion = ""; lastSpk = ""; }
+  synchronized void resetCtx() { restored.clear(); topicKw.clear(); label = ""; labelAt = 0; lastOnTopicAt = 0; chunks.clear(); lastLineWall = 0; lowOverlapRun = 0; sinceShift = 1000; lastHeardAt = 0; ovl.clear(); window.clear(); speakerTurns = 0; turnsSinceTopic = 0; topic = ""; confidence = 0; openQuestion = ""; lastSpk = ""; }
   /** Cheap pre-gate before spending an LLM call. */
   String preGate(long now, boolean calTalking) {
     if (calTalking) return "Calton is talking";
@@ -159,6 +163,7 @@ public class Brain {
     if (now - lastCoachAt < COOLDOWN[k] * 1000L) return "cooldown (" + settingNow() + ")";
     boolean enough = speakerTurns >= MIN_TURNS[k] || window.size() >= MIN_TURNS[k];
     if (!enough) return "still listening (" + window.size() + " turns)";
+    int rd = readiness(); if (rd < PRE_READY) return "building context (" + rd + "%)"; // 0.1.18: don't spend a Grok call on almost no context
     return null;
   }
   JSONArray assessMessages(Context c, Db.Session s) throws JSONException {
@@ -186,10 +191,13 @@ public class Brain {
   /** Apply the model's state update and run the final coach gate. Returns text to whisper, or null. */
   String gate(JSONObject j, long now) {
     String newTopic = j.optString("topic", topic);
+    if (!label.isEmpty() && now - labelAt < LABEL_MS && !newTopic.toLowerCase(Locale.US).contains(label.split(" ")[0])) newTopic = label + (newTopic.isEmpty() ? "" : " · " + newTopic); // 0.1.18: Calton's own label stays on top
     if (!similar(newTopic, topic)) { topicSince = now; turnsSinceTopic = 0; if (topic != null && !topic.isEmpty()) sinceShift = 0; } // 0.1.15: hard topic shift → meter drops and rebuilds
     String ms = j.optString("setting", ""); if (si(ms) != 4 || "casual".equals(ms)) { if (ms.equals(modelSetting)) modelAgree++; else { modelSetting = j.optDouble("setting_conf", 0) >= 0.6 ? ms : ""; modelAgree = modelSetting.isEmpty() ? 0 : 1; } }
     lastTone = j.optString("tone", ""); lastMood = j.optString("their_mood", "");
-    topic = newTopic; confidence = j.optDouble("confidence", 0); synchronized (this) { if (!chunks.isEmpty()) chunks.get(chunks.size() - 1).topic = newTopic; } try { WhisperService.readiness = readiness(); } catch (Throwable ignored) {} openQuestion = j.optString("open_question", "");
+    boolean shifted = !similar(newTopic, topic); topic = newTopic; double mc = j.optDouble("confidence", 0); confidence = shifted ? mc : Math.max(mc, confidence * 0.9); // 0.1.18: keep locally earned confidence on the same topic
+    synchronized (this) { if (shifted || topicKw.isEmpty()) { topicKw.clear(); topicKw.addAll(stems(kws(newTopic))); if (!chunks.isEmpty()) topicKw.addAll(stems(chunks.get(chunks.size() - 1).kw)); } lastOnTopicAt = now; }
+    synchronized (this) { if (!chunks.isEmpty()) chunks.get(chunks.size() - 1).topic = newTopic; } try { WhisperService.readiness = readiness(); } catch (Throwable ignored) {} openQuestion = j.optString("open_question", ""); changed();
     if (j.optDouble("calton_engaged", 1) < 0.25) return null;   // model thinks he isn't really in this conversation
     String say = j.optString("say", "SKIP").trim(), kind = j.optString("kind", "none");
     if (say.isEmpty() || say.toUpperCase(Locale.US).startsWith("SKIP") || "none".equals(kind)) return null;
@@ -199,7 +207,100 @@ public class Brain {
     if (isQuestionToCalton(say)) { WhisperService.log("(dropped a question: " + say + ")"); return null; }
     double need = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind) ? 0.45 : VALUE_CONF[si(settingNow())];    // value-adds need the most certainty
     if (confidence < need) return null;
+    boolean urgent = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind);
+    int rd = readiness(); if (rd < (urgent ? URGENT_READY : READY)) { WhisperService.log("(held: context " + rd + "% – needs " + (urgent ? URGENT_READY : READY) + "%)"); return null; } // 0.1.18 readiness gate
+    if (!"answer".equals(kind) && !aligned(lastThemText)) { WhisperService.log("(held: what they said doesn't match the topic – " + topic + ")"); return null; } // 0.1.18 alignment gate
     lastCoachAt = now; return say;
+  }
+  // ================= 0.1.18 =================
+  static final double RESTORED_W = 0.5; static final int READY = 55, URGENT_READY = 35, PRE_READY = 30; static final long LABEL_MS = 15 * 60_000L, DRIFT_DECAY_MS = 5 * 60_000L, DRIFT_DROP_MS = 10 * 60_000L;
+  final Set<String> restored = Collections.newSetFromMap(new IdentityHashMap<>()); final Set<String> topicKw = new HashSet<>();
+  String label = ""; long labelAt, lastOnTopicAt; double driftBase = -1; volatile Runnable onState;
+  void changed() { Runnable r = onState; if (r != null) try { r.run(); } catch (Throwable ignored) {} }
+  static String stem(String w) { w = w.toLowerCase(Locale.US); if (w.length() > 4 && w.endsWith("ies")) return w.substring(0, w.length() - 3) + "y"; if (w.length() > 4 && (w.endsWith("es") && (w.endsWith("sses") || w.endsWith("ches") || w.endsWith("shes") || w.endsWith("xes")))) return w.substring(0, w.length() - 2); if (w.length() > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.substring(0, w.length() - 1); return w; }
+  static Set<String> stems(Collection<String> ws) { Set<String> r = new HashSet<>(); for (String w : ws) r.add(stem(w)); return r; }
+  /** (b) quick labels: Calton saying "family talk", "network talk", "business talk"… sets topic + setting locally, instantly (no Grok round trip). */
+  static final java.util.regex.Pattern LABEL = java.util.regex.Pattern.compile("(?i)\\b(network(?:ing)?|family|business|work|sales?|money|price|deal|negotiation|meeting|project|school|church|health|doctor|medical|car|solar|cctv|camera|tech|computer|phone|casual|personal|friend|legal|bank|loan|travel|food|sports?|cricket|politics|street)\\s+(?:talk|chat|conversation|matter|mode|stuff|time|discussion)\\b");
+  static final Map<String, String[]> LABEL_MAP = new HashMap<>();
+  static { String[][] m = {{"network","meeting","network wifi internet router signal fibre speed"},{"networking","meeting","network contact intro connection business"},{"family","family","family mom dad kids wife husband home dinner"},
+      {"business","meeting","business client deal plan revenue customer"},{"work","meeting","work job project team deadline boss"},{"sale","sale","sale buy sell price customer order"},{"sales","sale","sale buy sell price customer order"},
+      {"money","negotiation","money price cost pay cash loan"},{"price","negotiation","price cost offer discount pay"},{"deal","negotiation","deal offer price terms agree"},{"negotiation","negotiation","offer price terms counter deal"},
+      {"meeting","meeting","meeting agenda decision action plan"},{"project","meeting","project plan deadline task team"},{"school","casual","school class teacher exam student"},{"church","casual","church service pastor prayer sunday"},
+      {"health","casual","health doctor pain medicine clinic"},{"doctor","casual","doctor clinic medicine pain test"},{"medical","casual","medical doctor clinic medicine test"},{"car","sale","car vehicle engine part mechanic price"},
+      {"solar","sale","solar panel inverter battery install power"},{"cctv","sale","cctv camera install dvr security"},{"camera","sale","camera cctv install security"},{"tech","meeting","tech computer software phone system"},
+      {"computer","meeting","computer laptop software repair system"},{"phone","casual","phone call number line"},{"casual","casual",""},{"personal","casual",""},{"friend","casual","friend"},{"legal","meeting","legal lawyer contract court document"},
+      {"bank","negotiation","bank loan account rate interest"},{"loan","negotiation","loan bank rate interest payment"},{"travel","casual","travel flight trip hotel ticket"},{"food","casual","food eat restaurant cook"},
+      {"sport","casual","sport game match team"},{"sports","casual","sport game match team"},{"cricket","casual","cricket match team score"},{"politics","casual","politics government election minister"},{"street","street",""}};
+    for (String[] e : m) LABEL_MAP.put(e[0], new String[]{e[1], e[2]}); }
+  synchronized boolean quickLabel(String text) {
+    java.util.regex.Matcher mt = LABEL.matcher(text == null ? "" : text); if (!mt.find()) return false;
+    String key = mt.group(1).toLowerCase(Locale.US); String[] v = LABEL_MAP.get(key); if (v == null) return false;
+    String nl = key + " talk"; long now = System.currentTimeMillis(); boolean shift = !nl.equals(label) && !topic.toLowerCase(Locale.US).contains(key);
+    label = nl; labelAt = now; topic = nl; confidence = Math.max(shift ? 0 : confidence, 0.75); topicSince = now; turnsSinceTopic = 0; lastOnTopicAt = now; driftBase = -1;
+    if (shift && !window.isEmpty()) sinceShift = 0;
+    topicKw.clear(); topicKw.add(stem(key)); for (String w : v[1].split(" ")) if (!w.isEmpty()) topicKw.add(stem(w));
+    setting = v[0]; modelSetting = v[0]; modelAgree = 2; // the local prior keeps it until the model agrees on something else twice
+    if (!chunks.isEmpty()) chunks.get(chunks.size() - 1).topic = nl;
+    WhisperService.log("🏷 Topic set by you: " + nl + " (" + v[0] + ")"); changed(); return true;
+  }
+  boolean onTopic(String text) { if (topicKw.isEmpty()) return false; for (String w : stems(kws(text))) if (topicKw.contains(w)) return true; return false; }
+  /** (e)+(d): on-topic lines raise confidence (Calton's own lines ONLY when on topic); drift is tracked for stale-topic decay. */
+  synchronized void trackTopic(String spk, String text) {
+    if (topic == null || topic.isEmpty() || topicKw.isEmpty()) return; long now = System.currentTimeMillis();
+    if (onTopic(text)) { lastOnTopicAt = now; driftBase = -1; double inc = "Me".equals(spk) ? 0.06 : "Unsure".equals(spk) ? 0.03 : 0.05; confidence = Math.min(0.95, confidence + inc);
+      for (String w : stems(kws(text))) if (topicKw.size() < 60) topicKw.add(w); }
+    staleCheck(now);
+  }
+  /** (d) stale topic: after 5 min with nothing on topic, confidence eases down; after 10 min the topic is dropped. */
+  synchronized void staleCheck(long now) {
+    if (topic == null || topic.isEmpty() || lastOnTopicAt == 0) return; long d = now - lastOnTopicAt; if (d < DRIFT_DECAY_MS) return;
+    if (d >= DRIFT_DROP_MS) { WhisperService.log("(topic went stale – dropped \"" + topic + "\")"); topic = ""; confidence = 0; openQuestion = ""; label = ""; topicKw.clear(); lastOnTopicAt = 0; driftBase = -1; changed(); return; }
+    if (driftBase < 0) driftBase = confidence; confidence = Math.min(confidence, driftBase * (1 - 0.7 * (d - DRIFT_DECAY_MS) / (double) (DRIFT_DROP_MS - DRIFT_DECAY_MS)));
+  }
+  /** (g) alignment: their words must touch the topic (or Calton's goal) before a value-add whisper. Short/empty lines pass. */
+  synchronized boolean aligned(String themText) {
+    Set<String> k = stems(kws(themText == null ? "" : themText)); if (k.size() < 3 || topicKw.isEmpty()) return true;
+    Set<String> ref = new HashSet<>(topicKw); ref.addAll(stems(kws(goal))); for (String w : k) if (ref.contains(w)) return true; return false;
+  }
+  /** (f) silent context repair: a likely-misheard word is swapped for a close topic/conversation word (same first letter, edit distance 1–2, the heard word never seen before). */
+  static final Set<String> COMMON = new HashSet<>(Arrays.asList("about","after","again","before","being","could","every","first","found","great","house","little","never","other","place","right","small","still","their","there","these","thing","think","three","under","water","where","which","while","world","would","years","price","prices","money","today","tomorrow","really","maybe","going","doing","saying","morning","evening","people","should","inverted","invested"));
+  synchronized String repair(String text, Collection<String> extraVocab) {
+    if (text == null || text.isEmpty()) return text;
+    Map<String, Integer> vocab = new HashMap<>(); for (String w : topicKw) vocab.merge(w, 2, Integer::sum);
+    for (String l : window) { int i = l.indexOf("] "); for (String w : kws(i > 0 ? l.substring(i + 2) : l)) vocab.merge(w, 1, Integer::sum); }
+    if (extraVocab != null) for (String w : extraVocab) if (w != null && w.length() >= 4) vocab.merge(w.toLowerCase(Locale.US), 2, Integer::sum);
+    StringBuilder out = new StringBuilder(); java.util.regex.Matcher m = java.util.regex.Pattern.compile("[A-Za-z']+|[^A-Za-z']+").matcher(text); boolean changed = false;
+    while (m.find()) { String tok = m.group(), lw = tok.toLowerCase(Locale.US);
+      if (lw.length() >= 5 && Character.isLetter(lw.charAt(0)) && !vocab.containsKey(lw) && !vocab.containsKey(stem(lw)) && !COMMON.contains(lw) && !STOP.contains(lw)) {
+        String best = null; int bd = 99, bc = 0; int lim = lw.length() >= 8 ? 2 : 1;
+        for (Map.Entry<String, Integer> e : vocab.entrySet()) { String v = e.getKey(); if (e.getValue() < 2 || v.length() < 5 || v.charAt(0) != lw.charAt(0) || Math.abs(v.length() - lw.length()) > lim) continue; int d = lev(lw, v); if (d <= lim && (d < bd || d == bd && e.getValue() > bc)) { best = v; bd = d; bc = e.getValue(); } }
+        if (best != null) { tok = Character.isUpperCase(tok.charAt(0)) ? Character.toUpperCase(best.charAt(0)) + best.substring(1) : best; changed = true; } }
+      out.append(tok); }
+    return changed ? out.toString() : text;
+  }
+  static int lev(String a, String b) { int[] p = new int[b.length() + 1], c = new int[b.length() + 1]; for (int j = 0; j <= b.length(); j++) p[j] = j;
+    for (int i = 1; i <= a.length(); i++) { c[0] = i; for (int j = 1; j <= b.length(); j++) c[j] = Math.min(Math.min(c[j - 1] + 1, p[j] + 1), p[j - 1] + (a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1)); int[] t = p; p = c; c = t; } return p[b.length()]; }
+  /** (a) after a restart: replay recent saved turns into the window/chunks (marked restored → half weight in readiness). */
+  synchronized int restore(List<Db.Turn> turns) {
+    int n = 0; long last = 0;
+    for (Db.Turn t : turns) { if (t == null || t.text == null || t.text.isEmpty()) continue; String k = t.kind == null ? "heard" : t.kind; if (!"heard".equals(k) && !"command".equals(k)) continue;
+      String tag = "Me".equals(t.speaker) ? "Me" : "Unsure".equals(t.speaker) ? "Unsure" : "Them"; String wl = "[" + tag + "] " + t.text;
+      window.add(wl); restored.add(wl); while (window.size() > 40) { restored.remove(window.get(0)); window.remove(0); } chunkLine(wl, t.text, t.ts); n++; last = Math.max(last, t.ts); }
+    if (n > 0) { lastHeardAt = last; sinceShift = 1000; } return n;
+  }
+  /** (a) continuous snapshot of the topic/domain state (saved in sessions.ctx, throttled by the service). */
+  synchronized JSONObject snapshot() throws JSONException {
+    JSONArray ch = new JSONArray(); for (Chunk c : chunks) ch.put(c.topic);
+    return new JSONObject().put("topic", topic).put("confidence", confidence).put("openQuestion", openQuestion).put("setting", setting).put("modelSetting", modelSetting).put("modelAgree", modelAgree)
+      .put("topicSince", topicSince).put("lastOnTopicAt", lastOnTopicAt).put("label", label).put("labelAt", labelAt).put("topicKw", new JSONArray(topicKw)).put("chunkTopics", ch).put("goal", goal).put("saved", System.currentTimeMillis());
+  }
+  synchronized void applySnapshot(JSONObject j) {
+    if (j == null) return; topic = j.optString("topic", topic); confidence = j.optDouble("confidence", confidence); openQuestion = j.optString("openQuestion", ""); setting = j.optString("setting", setting);
+    modelSetting = j.optString("modelSetting", ""); modelAgree = j.optInt("modelAgree", 0); topicSince = j.optLong("topicSince", 0); lastOnTopicAt = j.optLong("lastOnTopicAt", 0); label = j.optString("label", ""); labelAt = j.optLong("labelAt", 0);
+    if (goal.isEmpty()) goal = j.optString("goal", ""); topicKw.clear(); JSONArray k = j.optJSONArray("topicKw"); if (k != null) for (int i = 0; i < k.length(); i++) topicKw.add(k.optString(i));
+    JSONArray ch = j.optJSONArray("chunkTopics"); if (ch != null) for (int i = 0; i < Math.min(ch.length(), chunks.size()); i++) { int ci = chunks.size() - Math.min(ch.length(), chunks.size()) + i, si = ch.length() - Math.min(ch.length(), chunks.size()) + i; if (chunks.get(ci).topic.isEmpty()) chunks.get(ci).topic = ch.optString(si); }
+    if (!topic.isEmpty() && !chunks.isEmpty() && chunks.get(chunks.size() - 1).topic.isEmpty()) chunks.get(chunks.size() - 1).topic = topic;
+    staleCheck(System.currentTimeMillis());
   }
   /** 0.1.7 post-filter: javis gives suggestions, never questions back to Calton. A quoted line for him to ask is fine ("Ask: 'Is it in writing?'"). */
   static boolean isQuestionToCalton(String say) {

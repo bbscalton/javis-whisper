@@ -5,10 +5,10 @@ import androidx.room.migration.Migration;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 import java.util.List;
 /** Local text-only history (Room). Never stores audio. v2 (0.1.5) adds people memory + per-person conversation notes. */
-@Database(entities = {Db.Session.class, Db.Turn.class, Db.Person.class, Db.Convo.class}, version = 3, exportSchema = false)
+@Database(entities = {Db.Session.class, Db.Turn.class, Db.Person.class, Db.Convo.class}, version = 4, exportSchema = false)
 public abstract class Db extends RoomDatabase {
   @Entity(tableName = "sessions") public static class Session {
-    @PrimaryKey(autoGenerate = true) public long id; public long started, ended; public String mode, prebrief, summary, version; public boolean synced;
+    @PrimaryKey(autoGenerate = true) public long id; public long started, ended; public String mode, prebrief, summary, version, ctx; public boolean synced; // 0.1.18 ctx = topic/domain snapshot (JSON) for resume
   }
   @Entity(tableName = "turns", indices = @Index("sessionId")) public static class Turn {
     @PrimaryKey(autoGenerate = true) public long id; public long sessionId, ts; public String kind, speaker, lang, text;
@@ -29,6 +29,8 @@ public abstract class Db extends RoomDatabase {
     @Query("SELECT * FROM turns WHERE sessionId=:sid ORDER BY id") List<Turn> turns(long sid);
     @Query("SELECT * FROM turns WHERE sessionId=:sid AND ts>=:from ORDER BY id") List<Turn> turnsSince(long sid, long from);
     @Query("SELECT COUNT(*) FROM turns WHERE sessionId=:sid") int count(long sid);
+    @Query("SELECT COALESCE(MAX(ts), 0) FROM turns WHERE sessionId=:sid") long lastTs(long sid);
+    @Query("SELECT * FROM (SELECT * FROM turns WHERE sessionId=:sid AND ts>=:from ORDER BY id DESC LIMIT :n) ORDER BY id") List<Turn> tail(long sid, long from, int n);
     @Insert long add(Person p); @Update void update(Person p); @Delete void delete(Person p);
     @Query("SELECT * FROM people ORDER BY lastSeen DESC") List<Person> people();
     @Query("SELECT * FROM people WHERE id=:id") Person person(long id);
@@ -45,6 +47,7 @@ public abstract class Db extends RoomDatabase {
     db.execSQL("CREATE INDEX IF NOT EXISTS `index_convos_personId` ON `convos` (`personId`)");
   } };
   static final Migration M2_3 = new Migration(2, 3) { @Override public void migrate(SupportSQLiteDatabase db) { db.execSQL("ALTER TABLE `sessions` ADD COLUMN `version` TEXT"); } };
+  static final Migration M3_4 = new Migration(3, 4) { @Override public void migrate(SupportSQLiteDatabase db) { db.execSQL("ALTER TABLE `sessions` ADD COLUMN `ctx` TEXT"); } };
   private static Db inst;
-  public static synchronized Db get(Context c) { if (inst == null) inst = Room.databaseBuilder(c.getApplicationContext(), Db.class, "javis-whisper.db").addMigrations(M1_2, M2_3).allowMainThreadQueries().build(); return inst; }
+  public static synchronized Db get(Context c) { if (inst == null) inst = Room.databaseBuilder(c.getApplicationContext(), Db.class, "javis-whisper.db").addMigrations(M1_2, M2_3, M3_4).allowMainThreadQueries().build(); return inst; }
 }
