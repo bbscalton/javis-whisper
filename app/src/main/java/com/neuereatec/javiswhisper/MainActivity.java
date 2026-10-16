@@ -6,7 +6,7 @@ import static com.neuereatec.javiswhisper.Ui.*;
 
 public class MainActivity extends Activity {
   final Handler h = new Handler(Looper.getMainLooper());
-  LinearLayout voicesBox; TextView meBadge, statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
+  LinearLayout voicesBox; TextView readyT; ProgressBar readyBar; TextView meBadge, statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
   LinearLayout settings; Button settingChip, voiceB;
   void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
@@ -26,6 +26,7 @@ public class MainActivity extends Activity {
     meBadge = text(this, "● It's you", 14, 0xFF7A8BA3); meBadge.setPadding(px(this, 10), px(this, 4), px(this, 10), px(this, 4)); st.addView(meBadge, lp(this, -2, -2, 4)); // 0.1.12 owner-voice light
     meBadge.setOnClickListener(v -> { if (WhisperService.running && WhisperService.curSpeaker != null) { alert("Recognised", "Last speaker: " + WhisperService.curSpeaker + ". Manage voices in Settings."); return; }
       Prefs.put(this, "cal_pending", "1"); alert("Identify yourself", "With the earbud in, say:\n\n“This is [your name] doing a mic test.”\n\njavis saves that voice under the name you say (encrypted, on this phone only) and shows the name here when it hears that voice again."); });
+    readyT = text(this, "", 13, 0xFFFFFFFF); st.addView(readyT, lp(this, -1, -2, 6)); readyBar = bar(); readyBar.setMax(100); st.addView(readyBar, lp(this, -1, px(this, 12), 2)); // 0.1.15 context readiness meter
     routeT = text(this, "-", 13, MUTED); st.addView(routeT);
     st.addView(text(this, "Earbud mic (Me)", 12, MUTED), lp(this, -1, -2, 8)); meBar = bar(); st.addView(meBar, lp(this, -1, px(this, 10), 2));
     st.addView(text(this, "Phone mic (Them)", 12, MUTED), lp(this, -1, -2, 6)); themBar = bar(); st.addView(themBar, lp(this, -1, px(this, 10), 2));
@@ -190,6 +191,10 @@ public class MainActivity extends Activity {
       boolean live = r && System.currentTimeMillis() - WhisperService.curAt < 4000;
       meBadge.setText(lit ? "● " + who + (live ? " is talking" : " (last speaker)") : r && WhisperService.curAt > 0 ? "○ Voice not recognised · tap for phrase" : "○ No speaker yet · tap for phrase"); if (r && WhisperService.lockActive(this)) meBadge.setText("🔒 " + meBadge.getText());
       meBadge.setTextColor(lit ? 0xFFFFFFFF : 0xFF9AA5B4); meBadge.setBackgroundColor(lit ? 0xFF2E9E4F : 0xFF3A4556); }
+    { int rd = WhisperService.readiness; int vis = r ? View.VISIBLE : View.GONE; readyT.setVisibility(vis); readyBar.setVisibility(vis); readyBar.setProgress(rd);
+      String why = WhisperService.readyWhy; readyT.setText("Context readiness: " + rd + "% · " + (WhisperService.readyNoisy ? "noisy – being talked over" : rd >= 80 && why.isEmpty() ? "ready to whisper" : rd >= 50 ? "building" : "still gathering") + (why.isEmpty() ? "" : " (" + why + ")"));
+      int col = WhisperService.readyNoisy ? 0xFFE04848 : rd >= 80 && why.isEmpty() ? 0xFF2E9E4F : 0xFFF0A020; // red noisy · green ready · amber gathering
+      readyBar.setProgressTintList(android.content.res.ColorStateList.valueOf(col)); }
     meBar.setProgress(meter(WhisperService.levelMe)); themBar.setProgress(meter(WhisperService.levelThem));
     startB.setText(r ? "STOP" : "START listening"); startB.setBackground(round(r ? RED : GREEN, px(this, 12)));
     paintChip(); voiceB.setVisibility(VoiceEnroll.needGuided(this) ? View.VISIBLE : View.GONE);
