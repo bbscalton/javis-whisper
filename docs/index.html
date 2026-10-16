@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.14/JavisWhisper.apk">⬇ Download 0.1.14</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.15/JavisWhisper.apk">⬇ Download 0.1.15</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,14 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.14 – keeps recognising you</h3>Learns your voice from natural speech, matches mainly on pitch, keeps adapting as you talk, sets its own cut-off, and shows the version on screen.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.14/JavisWhisper.apk">⬇ Download 0.1.14</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.15 – context readiness meter</h3>A live 0–100% bar shows how much conversation javis has gathered before it whispers – green ready, amber gathering, red when you're being talked over – and drops when the topic changes.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.15/JavisWhisper.apk">⬇ Download 0.1.15</a></div>
 </div></section>
+<div id="v0115"><section><h2>What's new in 0.1.15</h2><ul>
+<li><b>Context readiness meter.</b> While listening, the top card shows “Context readiness: N%” with a bar. It fills from real context: how many lines were heard, how many came from the other person and from you, how many words, whether a topic has been worked out, and a head start if you gave a briefing.</li>
+<li><b>Colours.</b> <b>Green</b> = enough context and nothing holding javis back; <b>amber</b> = still gathering (the reason is shown, e.g. “still listening (1 turns)”); <b>red</b> = half or more of the recent lines were talked over, so the signal is noisy.</li>
+<li><b>Drops when things change.</b> A hard topic change resets the meter to the new topic's lines so it climbs again; after a minute of silence it eases down.</li>
+<li><b>Limits.</b> It's a guide, not a guarantee – a full bar means javis has more to go on, not that the whisper will be right.</li>
+</ul></section></div>
 <div id="v0114"><section><h2>What's new in 0.1.14</h2><ul>
 <li><b>Learns from how you really talk.</b> “This is Calton doing a mic test” now only tells javis who you are; your next 3 normal sentences become your voice samples. Saying the phrase again never overwrites them with the test sentence.</li>
 <li><b>Pitch-led matching.</b> Your voice pitch now counts most; the “hiss” measure that confused the test phrase with your normal voice counts much less, and the sentence-shape match is gone.</li>
@@ -119,4 +125,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.14 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.15 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>

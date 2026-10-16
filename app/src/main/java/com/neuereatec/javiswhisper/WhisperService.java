@@ -60,6 +60,7 @@ public class WhisperService extends Service {
   static boolean lockActive(Context c) { return "1".equals(Prefs.s(c, "lock", "0")) && !lockAllowed(c).isEmpty(); }
   // 0.1.14 natural-speech enrollment + continuity
   volatile int natLeft; volatile double natF0; volatile long natUntil, lastMeWall; volatile double lastMeF0;
+  public static volatile boolean readyNoisy; public static volatile int readiness; public static volatile String readyWhy = ""; // 0.1.15 meter
   volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); final Guard guard = new Guard(); People people; public static volatile String settingShown = "auto"; volatile ScheduledFuture<?> pendingCoach;
   final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
@@ -120,6 +121,7 @@ public class WhisperService extends Service {
       // 0.1.12 optional briefing: no pre-brief → carry context from a recent session (last 6 h) if there is one
       if (prebrief.isEmpty()) try { for (Db.Session ps : db.d().sessions()) { if (ps.summary == null || ps.summary.isEmpty()) continue; if (System.currentTimeMillis() - ps.started < 6 * 3600_000L) { prebrief = "(no briefing – continuing from last session) " + People.clip(ps.summary, 300); log("No briefing – picking up from your last session's context"); } break; } } catch (Throwable ignored) {}
       if (prebrief.isEmpty()) log("No briefing – javis will work out the topic as it listens");
+      brain.resetCtx(); readiness = 0; readyWhy = "";
       brain.hasBrief = !prebrief.isEmpty(); if (brain.hasBrief) brain.topic = People.clip(prebrief, 60); people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
       proc.execute(() -> { if (!pb.isEmpty()) people.fromPrebrief(xai, model, pb); brain.goal = people.goal; brain.personCard = people.card; });
       log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
@@ -140,6 +142,7 @@ public class WhisperService extends Service {
       am.registerAudioDeviceCallback(devCb, new Handler(Looper.getMainLooper()));
       sched.scheduleWithFixedDelay(this::watchdog, 2, 2, TimeUnit.SECONDS);
       sched.scheduleWithFixedDelay(() -> { if (tts != null) tts.ensure(); refillStt(); }, 5, 20, TimeUnit.SECONDS); // keep the TTS socket warm
+      sched.scheduleWithFixedDelay(() -> { try { readiness = brain.readiness(); readyNoisy = brain.noisy(); } catch (Throwable ignored) {} }, 5, 5, TimeUnit.SECONDS); // 0.1.15 meter staleness decay
       status = "Listening";
     } catch (Throwable t) { log("Start failed: " + t); status = "Error: " + t.getMessage(); }
   }
@@ -362,6 +365,7 @@ public class WhisperService extends Service {
       }
       saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
       addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text, u.startWall, System.currentTimeMillis() - u.vadMs - (SystemClock.uptimeMillis() - u.endUp), pf, cues);
+      try { brain.noteTurn(pf.overlap); readiness = brain.readiness(); readyNoisy = brain.noisy(); String g = brain.preGate(System.currentTimeMillis(), false); readyWhy = g == null ? "" : g; } catch (Throwable ignored) {} // 0.1.15 meter
       // ---- 0.1.5 people memory: learn names, attach the person, learn their voice once linked ----
       String nm = People.nameIn(text, spk);
       if (nm != null && people.attach(nm, "", "heard \"" + nm + "\"")) brain.personCard = people.card;
