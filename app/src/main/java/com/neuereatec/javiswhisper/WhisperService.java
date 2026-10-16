@@ -53,7 +53,11 @@ public class WhisperService extends Service {
   volatile Xai.Stt spareStt; volatile String sttLang = "en";
   synchronized void refillStt() { if (xai == null || !running) return; Xai.Stt s = spareStt; if (s != null && s.fresh()) return; if (s != null) s.cancel(); try { spareStt = xai.stt(sttLang); } catch (Throwable t) { spareStt = null; } }
   synchronized Xai.Stt takeStt() { Xai.Stt s = spareStt; spareStt = null; if (s == null || !s.fresh()) { if (s != null) s.cancel(); s = xai.stt(sttLang); } try { sched.execute(this::refillStt); } catch (Throwable ignored) {} return s; }
-  public static volatile long meMatchAt; public static volatile boolean ownerKnown; public static volatile String matchName = ""; // 0.1.12 owner-voice badge
+  public static volatile long meMatchAt; public static volatile boolean ownerKnown; public static volatile String matchName = ""; public static volatile String curSpeaker = null; public static volatile long curAt; public static volatile Proximity.Feat lastFeat; // 0.1.13 live per-utterance speaker // 0.1.12 owner-voice badge
+  /** 0.1.13 Lock: enrolled voices allowed while locked (Prefs "lock_allow", ';'-list; empty = all enrolled). */
+  static Set<String> lockAllowed(Context c) { Set<String> all = new LinkedHashSet<>(); if (VoiceEnroll.has(c)) all.add(VoiceEnroll.owner(c)); all.addAll(VoiceEnroll.voices(c).keySet());
+    String p = Prefs.s(c, "lock_allow", ""); if (p.isEmpty()) return all; Set<String> s = new LinkedHashSet<>(); for (String n : p.split(";")) if (all.contains(n)) s.add(n); return s; }
+  static boolean lockActive(Context c) { return "1".equals(Prefs.s(c, "lock", "0")) && !lockAllowed(c).isEmpty(); }
   volatile Utt cur; final Object uttLock = new Object(); final Brain brain = new Brain(); final Guard guard = new Guard(); People people; public static volatile String settingShown = "auto"; volatile ScheduledFuture<?> pendingCoach;
   final ExecutorService proc = Executors.newSingleThreadExecutor();
   final ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
@@ -108,7 +112,8 @@ public class WhisperService extends Service {
       sttLang = "translate".equals(mode) ? "" : "en"; refillStt();
       proc.execute(() -> { long t0 = SystemClock.uptimeMillis(); try { xai.chat(model, new JSONArray().put(Learn.msg("user", "ok")), 1, 0, null); log("(warm-up: Grok link ready in " + (SystemClock.uptimeMillis() - t0) + " ms)"); } catch (Throwable t) { log("(warm-up failed: " + t.getMessage() + ")"); } });
       // 0.1.12: restore Calton's saved voice identity – no need to re-identify each launch
-      ownerKnown = VoiceEnroll.has(this); meMatchAt = 0; if (ownerKnown) { brain.meSeen = true; log("✔ Voice remembered – no mic test needed. Re-enroll in Settings anytime."); }
+      ownerKnown = VoiceEnroll.has(this); meMatchAt = 0; curSpeaker = null; curAt = 0;
+      if ("1".equals(Prefs.s(this, "lock", "0"))) log(lockActive(this) ? "🔒 Lock on – only tracking: " + String.join(", ", lockAllowed(this)) : "🔒 Lock is on but no enrolled voice is selected – listening to everyone for now"); if (ownerKnown) { brain.meSeen = true; log("✔ Voice remembered – no mic test needed. Re-enroll in Settings anytime."); }
       final String pb = prebrief; // the real brief only (inferred context below never creates people)
       // 0.1.12 optional briefing: no pre-brief → carry context from a recent session (last 6 h) if there is one
       if (prebrief.isEmpty()) try { for (Db.Session ps : db.d().sessions()) { if (ps.summary == null || ps.summary.isEmpty()) continue; if (System.currentTimeMillis() - ps.started < 6 * 3600_000L) { prebrief = "(no briefing – continuing from last session) " + People.clip(ps.summary, 300); log("No briefing – picking up from your last session's context"); } break; } } catch (Throwable ignored) {}
@@ -292,14 +297,17 @@ public class WhisperService extends Service {
       // ---- voice proximity: soft near-owner score with an UNSURE middle band ----
       Proximity.Feat pf = u.acc.feat();
       byte[] clip = u.pcm.toByteArray();
+      lastFeat = pf;
+      String asName = VoiceEnroll.clean(Prefs.s(this, "enroll_as", "")); // 0.1.13 re-enroll a named person from Settings: next utterance
+      if (!asName.isEmpty() && !VoiceEnroll.isOwner(this, asName)) { Prefs.put(this, "enroll_as", ""); VoiceEnroll.saveNamed(this, asName, pf); curSpeaker = asName; curAt = System.currentTimeMillis(); log("✔ Re-enrolled " + asName + "'s voice"); saveTurn("heard", "Them", "en", text, u.startWall); return; }
       String said = VoiceEnroll.spokenName(text);
-      if (said != null && !VoiceEnroll.isOwner(this, said)) { Prefs.put(this, "cal_pending", "0"); VoiceEnroll.saveNamed(this, said, pf); matchName = said; meMatchAt = System.currentTimeMillis();
+      if (said != null && !VoiceEnroll.isOwner(this, said)) { Prefs.put(this, "cal_pending", "0"); VoiceEnroll.saveNamed(this, said, pf); matchName = said; meMatchAt = System.currentTimeMillis(); curSpeaker = said; curAt = meMatchAt;
         log("✔ Learned " + said + "'s voice (kept encrypted on this phone only)"); saveTurn("heard", "Them", "en", text, u.startWall); return; }
       if (said != null) Prefs.put(this, "cal_pending", "1"); // owner said the phrase → (re-)enroll as owner
       if ("1".equals(Prefs.s(this, "cal_pending", "0"))) { Prefs.put(this, "cal_pending", "0"); matchName = VoiceEnroll.owner(this);
         try { VoiceEnroll.save(this, clip, pf); log("✔ Voice enrolled (" + VoiceEnroll.count(this) + "/3 samples, kept encrypted on this phone only): " + pf); }
         catch (Exception e) { Proximity.learn(this, pf, 3); log("✔ Learned your voice (clip not kept: " + e.getMessage() + "): " + pf); }
-        saveTurn("heard", "Me", "en", text, u.startWall); brain.meSeen = true; ownerKnown = true; meMatchAt = System.currentTimeMillis(); return; }
+        saveTurn("heard", "Me", "en", text, u.startWall); brain.meSeen = true; ownerKnown = true; meMatchAt = System.currentTimeMillis(); curSpeaker = VoiceEnroll.owner(this); curAt = meMatchAt; return; }
       double near = Proximity.nearScore(this, pf, clip); clip = null;
       String spk = Proximity.band(near);
       long nowW = System.currentTimeMillis();
@@ -309,6 +317,9 @@ public class WhisperService extends Service {
       // 0.1.9: an unsure voice that answers the other person on topic, right after them, is most likely Calton
       else if ("Unsure".equals(spk) && brain.lastThemEnd > 0 && u.startWall - brain.lastThemEnd < 6000 && Guard.hits(text, brain.lastThemText) >= 1) { log("(probably Calton – replied on topic)"); spk = "Me"; Proximity.learn(this, pf, 0.3); }
       String vname = null; if (!"Me".equals(spk)) { vname = VoiceEnroll.matchNamed(this, pf); if (vname != null) { matchName = vname; meMatchAt = System.currentTimeMillis(); } }
+      curSpeaker = VoiceEnroll.identify(this, spk, pf); curAt = System.currentTimeMillis(); // every utterance updates the badge
+      // 0.1.13 Lock: with ≥2 enrolled voices (owner + 1 other), unrecognised speech is discarded – not saved, not shown, not sent to Grok
+      if (lockActive(this) && (curSpeaker == null || !lockAllowed(this).contains(curSpeaker))) { log("(🔒 Lock: ignored " + (curSpeaker == null ? "an unrecognised voice" : curSpeaker + " – not in the lock list") + ")"); curSpeaker = null; return; }
       if ("Me".equals(spk)) { brain.meSeen = true; ownerKnown = true; matchName = VoiceEnroll.owner(this); meMatchAt = System.currentTimeMillis(); guard.calton(); } else if ("Them".equals(spk)) guard.far(nowW, text);
       brain.monologue = guard.monologue(nowW);
       // 0.1.10: pure voice/mic-test phrases: log + save, never coach, never names

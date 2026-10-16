@@ -22,6 +22,11 @@ public class VoiceEnroll {
   static Map<String, String> voices(Context c) { Map<String, String> m = new LinkedHashMap<>(); for (String e : Prefs.s(c, "voices", "").split(";")) { int i = e.indexOf('='); if (i > 0) m.put(e.substring(0, i), e.substring(i + 1)); } return m; }
   static synchronized void saveNamed(Context c, String name, Proximity.Feat f) { Map<String, String> m = voices(c); m.remove(name); m.put(name, featLine(f)); while (m.size() > 12) m.remove(m.keySet().iterator().next());
     StringBuilder b = new StringBuilder(); for (Map.Entry<String, String> e : m.entrySet()) b.append(b.length() > 0 ? ";" : "").append(e.getKey().replace(";", "").replace("=", "")).append('=').append(e.getValue()); Prefs.put(c, "voices", b.toString()); }
+  static synchronized void removeNamed(Context c, String name) { Map<String, String> m = voices(c); m.remove(name); StringBuilder b = new StringBuilder(); for (Map.Entry<String, String> e : m.entrySet()) b.append(b.length() > 0 ? ";" : "").append(e.getKey()).append('=').append(e.getValue()); Prefs.put(c, "voices", b.toString()); }
+  static String clean(String n) { n = n == null ? "" : n.replaceAll("[;=]", "").trim(); return n.length() > 30 ? n.substring(0, 30) : n; }
+  /** 0.1.13 speaker model entry point: name of the enrolled speaker for this utterance, or null = not recognised.
+   *  Owner comes from the proximity band ("Me"); others from the named voiceprints. Foundation for "only track enrolled voices". */
+  static String identify(Context c, String band, Proximity.Feat f) { if ("Me".equals(band) && has(c)) return owner(c); if ("Me".equals(band)) return null; return matchNamed(c, f); }
   /** best-matching named voice (≥0.62 similarity) or null. */
   static String matchNamed(Context c, Proximity.Feat f) { String best = null; double bs = 0.62; for (Map.Entry<String, String> e : voices(c).entrySet()) { double s = featSim(e.getValue(), f); if (s > bs) { bs = s; best = e.getKey(); } } return best; }
   /** Successful Me bands from Calton's 11:32 voice test (snr / Δ / low / hf / mod / f0) – tolerance hints. */
