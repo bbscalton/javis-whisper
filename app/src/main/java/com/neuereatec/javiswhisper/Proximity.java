@@ -105,7 +105,10 @@ public class Proximity {
   public static String band(double near) { return near >= ME ? "Me" : near <= THEM ? "Them" : "Unsure"; }
 
   /** Passive learning: called for accepted wake-word commands and very confident Me turns; explicit calibration weighs more. */
-  public static void learn(Context c, Feat f, double weight) {
+  /** 0.1.19: every learning path is pitch-guarded – a line more than 15% off his saved pitch (or with no pitch) never touches the profile. */
+  public static void learn(Context c, Feat f, double weight) { if (!Classify.canLearn(f.pitch, ownerF0(c))) { WhisperService.log(String.format(Locale.US, "(not learning from this line – pitch %.0f vs yours %.0f)", f.pitch, ownerF0(c))); return; } learnForce(c, f, weight); }
+  /** explicit enrollment (Settings re-enroll / guided phrase) may move the profile. */
+  static void learnForce(Context c, Feat f, double weight) {
     double[] pr = profile(c); double a = pr == null ? 1 : Math.min(0.5, weight / (pr[5] + weight));
     double[] cur = {Double.isNaN(f.dbDiff) ? (pr == null ? Double.NaN : pr[0]) : f.dbDiff, f.lowRatio, f.hfRatio, f.modDb, f.snrDb, 0, f.pitch > 0 ? f.pitch : Double.NaN, f.pitch > 0 ? f.pitchSpread : Double.NaN};
     double[] out = new double[8];

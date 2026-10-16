@@ -102,6 +102,7 @@ public class Brain {
     if ("Them".equals(spk) && "Them".equals(lastSpk) && lastThemEnd > 0) { long g = startWall - lastThemEnd; if (g > 150 && g < 4000) themGapEma += 0.3 * (g * 1.0 - themGapEma); }
     if ("Them".equals(spk)) { double[] v = fv(f); double pm = partnerMatch(v); lastThemPartner = partner == null || pm >= 0.5;
       tag = partner == null ? "Them" : lastThemPartner ? "Partner" : "Other"; lastThemText = text; lastThemEnd = endWall; lastThemFeat = v; }
+    else if ("Unsure".equals(spk)) { lastThemText = text; lastThemEnd = endWall; if (partner == null) lastThemPartner = true; } // 0.1.19: an unsure voice can be the other person
     else if ("Me".equals(spk)) { String why = checkMembership(text, startWall, 0); if (why != null) WhisperService.log("🤝 Calton is in this conversation (" + why + ")"); }
     if ("Me".equals(spk)) quickLabel(text);
     String wl = "[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text; window.add(wl); while (window.size() > 40) { restored.remove(window.get(0)); window.remove(0); }
@@ -116,7 +117,7 @@ public class Brain {
     double them = 0, me = 0, words = 0, n = 0;
     int from = Math.max(0, window.size() - (sinceShift + 2)); // 0.1.15 decay: after a hard topic shift only the new lines (+2 bridge) count
     for (String l : window.subList(from, window.size())) { double w = restored.contains(l) ? RESTORED_W : 1; n += w; // 0.1.18: lines replayed after a restart count at half weight
-      if (l.startsWith("[Them") || l.startsWith("[Partner") || l.startsWith("[Other")) them += w; else if (l.startsWith("[Me")) me += w; int i = l.indexOf("] "); if (i > 0) words += w * l.substring(i + 2).trim().split("\\s+").length; }
+      if (l.startsWith("[Them") || l.startsWith("[Partner") || l.startsWith("[Other")) them += w; else if (l.startsWith("[Unsure")) them += 0.5 * w; else if (l.startsWith("[Me")) me += w; int i = l.indexOf("] "); if (i > 0) words += w * l.substring(i + 2).trim().split("\\s+").length; }
     double s = 25 * Math.min(1, n / 5.0) + 25 * Math.min(1, them / 2.5) + 15 * Math.min(1, me / 1.5) + 15 * Math.min(1, words / 90.0) // 0.1.18 faster ramp (was 6 lines / 3 theirs / 2 his / 120 words)
       + 20 * (topic == null || topic.isEmpty() ? 0 : Math.max(0.3, Math.min(1, confidence)) * (chunks.isEmpty() || !chunks.get(chunks.size() - 1).topic.isEmpty() ? 1 : 0.5)); // 0.1.16: half credit until the current chunk has its own topic
     if (hasBrief) s = Math.max(s, 15 + s * 0.85); // a briefing gives a head start
@@ -154,7 +155,7 @@ public class Brain {
     if (!meSeen) return "voice not learned yet – waiting to hear Calton first";
     if (monologue) return "one voice talking on with no reply from Calton (video or speech) – background";
     if (now - overlapAt < 3000) return "people are talking over each other – waiting";
-    if (!"Them".equals(lastSpk)) return "Me".equals(lastSpk) ? "last turn was Calton" : "unsure who spoke – waiting it out";
+    if ("Me".equals(lastSpk) || lastSpk.isEmpty()) return "last turn was Calton"; // 0.1.19: Them and Unsure lines both open the coach
     // 0.1.7: with only one far voice (no partner linked yet), one exchange with Calton is enough – or a pre-brief says he's in a conversation
     boolean oneVoiceExchange = partner == null && lastMeAt > 0 && (now - lastMeAt < 60_000 || (hasBrief && now - lastMeAt < 180_000));
     if (!engaged(now) && !oneVoiceExchange) return "background – Calton hasn't spoken with this voice yet";
@@ -182,6 +183,7 @@ public class Brain {
       + Guard.clock() + " " + Guard.RULES + "\n"
       + "SETTING: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ". " + GUYANA_SHORT;
     if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\nPRE-BRIEF (start with this context): " + People.clip(s.prebrief, 300);
+    if (!background.isEmpty()) sys += "\nBACKGROUND (an earlier session – may be unrelated, never assume it's the current topic): " + People.clip(background, 300);
     if (!goal.isEmpty()) sys += "\nCALTON'S GOAL: " + goal + " – steer him toward it.";
     if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(personCard, 400);
     String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nWhat helps Calton: " + People.clip(learned, 250);
@@ -215,6 +217,7 @@ public class Brain {
   // ================= 0.1.18 =================
   static final double RESTORED_W = 0.5; static final int READY = 55, URGENT_READY = 35, PRE_READY = 30; static final long LABEL_MS = 15 * 60_000L, DRIFT_DECAY_MS = 5 * 60_000L, DRIFT_DROP_MS = 10 * 60_000L;
   final Set<String> restored = Collections.newSetFromMap(new IdentityHashMap<>()); final Set<String> topicKw = new HashSet<>();
+  volatile String background = ""; // 0.1.19 earlier-session summary, background only
   String label = ""; long labelAt, lastOnTopicAt; double driftBase = -1; volatile Runnable onState;
   void changed() { Runnable r = onState; if (r != null) try { r.run(); } catch (Throwable ignored) {} }
   static String stem(String w) { w = w.toLowerCase(Locale.US); if (w.length() > 4 && w.endsWith("ies")) return w.substring(0, w.length() - 3) + "y"; if (w.length() > 4 && (w.endsWith("es") && (w.endsWith("sses") || w.endsWith("ches") || w.endsWith("shes") || w.endsWith("xes")))) return w.substring(0, w.length() - 2); if (w.length() > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.substring(0, w.length() - 1); return w; }

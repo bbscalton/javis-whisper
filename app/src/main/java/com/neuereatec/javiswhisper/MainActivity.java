@@ -210,7 +210,8 @@ public class MainActivity extends Activity {
       boolean live = r && System.currentTimeMillis() - WhisperService.curAt < 4000;
       String dl = r ? WhisperService.curLabel : null; if (!lit && dl != null) { meBadge.setText("● " + dl + (live ? " is talking" : " (last speaker)") + " · tap ✎ below to name"); meBadge.setTextColor(0xFFFFFFFF); meBadge.setBackgroundColor(0xFF8A6D1E); } else
       meBadge.setText(lit ? "● " + who + (live ? " is talking" : " (last speaker)") : r && WhisperService.curAt > 0 ? "○ Voice not recognised · tap for phrase" : "○ No speaker yet · tap for phrase"); if (r && WhisperService.lockActive(this)) meBadge.setText("🔒 " + meBadge.getText());
-      if (lit || dl == null) { meBadge.setTextColor(lit ? 0xFFFFFFFF : 0xFF9AA5B4); meBadge.setBackgroundColor(lit ? 0xFF2E9E4F : 0xFF3A4556); } }
+      if (lit || dl == null) { meBadge.setTextColor(lit ? 0xFFFFFFFF : 0xFF9AA5B4); meBadge.setBackgroundColor(lit ? 0xFF2E9E4F : 0xFF3A4556); }
+      if (!lit && dl == null && r && WhisperService.curAt == 0 && VoiceEnroll.has(this)) { meBadge.setText((WhisperService.lockActive(this) ? "🔒 " : "") + "● " + VoiceEnroll.owner(this) + " enrolled · waiting for speech"); meBadge.setTextColor(0xFFFFFFFF); meBadge.setBackgroundColor(0xFF2E9E4F); } } // 0.1.19
     paintSpeakers(r); { int q = WhisperService.quality; qualT.setVisibility(r && q >= 0 ? View.VISIBLE : View.GONE);
       if (q >= 0) { String lvl = q >= 75 ? "good" : q >= 50 ? "fair" : "poor"; qualT.setText("Quality: " + q + "% " + lvl + " · " + WhisperService.qTrend + (WhisperService.qWhy.isEmpty() ? "" : " (" + WhisperService.qWhy + ")"));
         qualT.setTextColor(q >= 75 && !"dropping".equals(WhisperService.qTrend) ? 0xFF7FE09A : q >= 50 ? 0xFFF0C060 : 0xFFFF8080); } }

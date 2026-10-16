@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.18/JavisWhisper.apk">⬇ Download 0.1.18</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.19/JavisWhisper.apk">⬇ Download 0.1.19</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,16 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.18 – picks up where you left off</h3>Stop and restart and javis carries on with the same conversation, topic and person. Say “family talk” or “business talk” to set the topic instantly. Whispers wait for a natural pause and only come when it has enough context.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.18/JavisWhisper.apk">⬇ Download 0.1.18</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.19 – works without earbuds</h3>The other person is no longer mistaken for you, short replies count, and javis now coaches when you're using just the phone. Your enrolled voice shows as remembered at start.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.19/JavisWhisper.apk">⬇ Download 0.1.19</a></div>
 </div></section>
+<div id="v0119"><section><h2>What's new in 0.1.19</h2><ul>
+<li><b>The other person isn't you.</b> A voice clearly higher or lower than yours (more than about 25%) is never filed as you, and a line already heard as the other person is never pulled into your tag.</li>
+<li><b>Phone only, no earbuds.</b> javis now says “phone only” at start, tells voices apart mainly by pitch, and no longer thinks everyone is talking over each other. In the 16 Oct test that false flag was holding coaching back.</li>
+<li><b>Short replies count.</b> “Go ahead”, “That's true” or a name are kept (marked short) instead of being thrown away, and javis considers a whisper after any line that isn't yours.</li>
+<li><b>Your voice stays yours.</b> At start the badge shows “● Calton enrolled · waiting for speech”. Saying the mic-test phrase again just gets “Already know you” – no new learning round (re-enroll stays in Settings). javis only learns from lines within 15% of your pitch, so another voice can no longer creep into your profile.</li>
+<li><b>Clearer log.</b> Every line shows readiness and why javis is holding back, e.g. “(ready 47% · blocked: …)”. An earlier session's summary is now background only – no head start and no “pre-brief set”.</li>
+<li><b>No reset needed.</b> Installs over 0.1.18; your enrolled voice and history carry over.</li>
+</ul></section></div>
 <div id="v0118"><section><h2>What's new in 0.1.18</h2><ul>
 <li><b>Restart keeps the conversation.</b> If you used javis in the last 30 minutes, START picks up the same conversation: recent lines, topic, setting and who you were talking with. Settings → “Start fresh next time” begins a new one; the 30 minutes can be changed. Topic state is saved as you go, so it survives the app being swiped away. A session that was cut off gets its summary written next time.</li>
 <li><b>Say the topic.</b> Say “family talk”, “network talk”, “business talk”, “money talk” (and similar) and javis sets the topic and setting straight away – no waiting on Grok.</li>
@@ -148,4 +156,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.18 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.19 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
