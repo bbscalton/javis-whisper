@@ -123,7 +123,7 @@ public class WhisperService extends Service {
       sttLang = "translate".equals(mode) ? "" : "en"; refillStt();
       proc.execute(() -> { long t0 = SystemClock.uptimeMillis(); try { xai.chat(model, new JSONArray().put(Learn.msg("user", "ok")), 1, 0, null); log("(warm-up: Grok link ready in " + (SystemClock.uptimeMillis() - t0) + " ms)"); } catch (Throwable t) { log("(warm-up failed: " + t.getMessage() + ")"); } });
       // 0.1.12: restore Calton's saved voice identity – no need to re-identify each launch
-      ownerKnown = VoiceEnroll.has(this); meMatchAt = 0; curSpeaker = null; curAt = 0; diar = new Diar(this); curLabel = null; curCl = null; quality = -1; qShort = qLong = -1; qTrend = ""; qWhy = "";
+      ownerKnown = VoiceEnroll.has(this); meMatchAt = 0; curSpeaker = null; curAt = 0; diar = new Diar(this); if (VoiceEnroll.has(this)) diar.owner = VoiceEnroll.owner(this); curLabel = null; curCl = null; quality = -1; qShort = qLong = -1; qTrend = ""; qWhy = "";
       if ("1".equals(Prefs.s(this, "lock", "0"))) log(lockActive(this) ? "🔒 Lock on – only tracking: " + String.join(", ", lockAllowed(this)) : "🔒 Lock is on but no enrolled voice is selected – listening to everyone for now"); if (ownerKnown) { brain.meSeen = true; log("✔ Voice remembered – no mic test needed. Re-enroll in Settings anytime."); }
       final String pb = prebrief; // the real brief only (inferred context below never creates people)
       // 0.1.12 optional briefing: no pre-brief → carry context from a recent session (last 6 h) if there is one
@@ -342,7 +342,7 @@ public class WhisperService extends Service {
       String vname = null; if (!"Me".equals(spk)) { vname = VoiceEnroll.matchNamed(this, pf); if (vname != null) { matchName = vname; meMatchAt = System.currentTimeMillis(); } }
       curSpeaker = VoiceEnroll.identify(this, spk, pf); curAt = System.currentTimeMillis(); // every utterance updates the badge
       // 0.1.16 diarization: every utterance gets a Speaker N / name tag from its voice fingerprint
-      String dlabel = null; try { Diar.Cl k = diar.assign(pf, curSpeaker); curCl = k; if (k != null) { dlabel = k.label(); if (curSpeaker == null && k.name != null) curSpeaker = k.name; } } catch (Throwable t) { curCl = null; }
+      String dlabel = null; try { Diar.Cl k = diar.assign(pf, curSpeaker); curCl = k; if (k != null) { dlabel = k.label(); if (curSpeaker == null && k.name != null) curSpeaker = k.name; if (k.name != null && k.name.equals(diar.owner) && !"Me".equals(spk)) { spk = "Me"; log("(voice anchored to " + k.name + ")"); } } } catch (Throwable t) { curCl = null; }
       curLabel = dlabel != null ? dlabel : curSpeaker;
       try { double cut = Proximity.meCut(this); double conf = curSpeaker != null ? 1 : "Unsure".equals(spk) ? Math.min(1, Math.abs(near - cut) / 0.15) * 0.6 : 0.6;
         String uc = Guard.unclear(text); double stab = text.trim().split("\\s+").length >= 3 && uc == null ? 1 : uc == null ? 0.6 : 0.2;

@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.16/JavisWhisper.apk">⬇ Download 0.1.16</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.17/JavisWhisper.apk">⬇ Download 0.1.17</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,15 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.16 – who said what</h3>Live Speaker 1 / 2 / … tags from the sound of each voice (tap to name them), topic chunks for sharper topic detection, and a live quality score.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.16/JavisWhisper.apk">⬇ Download 0.1.16</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.17 – one speaker stays one speaker</h3>Speaker tags are anchored: a solo speaker no longer splits into Speaker 2 / 3, short pauses never relabel anyone, and your lines always collapse to you.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.17/JavisWhisper.apk">⬇ Download 0.1.17</a></div>
 </div></section>
+<div id="v0117"><section><h2>What's new in 0.1.17</h2><ul>
+<li><b>Anchored voices.</b> Each speaker is matched against a steady running profile, and an odd-sounding line no longer moves it. A new “Speaker N” only appears after two clearly different lines in a row.</li>
+<li><b>Short pauses keep the speaker.</b> If the same voice continues within 3 seconds it keeps its tag.</li>
+<li><b>Always you.</b> Once your voice is enrolled, lines close to your profile are tagged as you – never as a generic Speaker.</li>
+<li><b>Calmer matching.</b> Pitch still leads but counts a little less, and the “brightness” measure that jumped around in testing is nearly ignored.</li>
+<li><b>Limits.</b> Still on-phone, non-neural matching: a second person with a voice like yours may now be folded into your tag more often – that's the trade-off for not splitting you.</li>
+</ul></section></div>
 <div id="v0116"><section><h2>What's new in 0.1.16</h2><ul>
 <li><b>Speaker tags without enrolling.</b> javis builds a voice fingerprint from how each person <i>sounds</i> – pitch, pitch range and contour, bass and brightness, vowel brightness, speaking rate, loudness swing and trailing-off – and tags lines live as Speaker 1, Speaker 2, … A returning voice keeps its tag; you show as Calton.</li>
 <li><b>Name a speaker.</b> Tap their chip (✎) in the top card and type a name, or have them say “This is [name] doing a mic test”. The name then shows everywhere and is remembered next time (and appears in Settings → Enrolled voices).</li>
@@ -132,4 +139,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.16 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.17 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
