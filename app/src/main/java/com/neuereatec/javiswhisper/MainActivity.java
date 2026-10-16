@@ -6,7 +6,7 @@ import static com.neuereatec.javiswhisper.Ui.*;
 
 public class MainActivity extends Activity {
   final Handler h = new Handler(Looper.getMainLooper());
-  TextView meBadge, statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
+  LinearLayout voicesBox; TextView meBadge, statusT, routeT, logT, pairT, lastT; ProgressBar meBar, themBar; Button startB; final Map<String, Button> modeBtns = new LinkedHashMap<>();
   LinearLayout settings; Button settingChip, voiceB;
   void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
@@ -23,7 +23,7 @@ public class MainActivity extends Activity {
     LinearLayout st = card(this); root.addView(st, lp(this, -1, -2, 14));
     statusT = text(this, "Stopped", 20, 0xFFFFFFFF); st.addView(statusT);
     meBadge = text(this, "● It's you", 14, 0xFF7A8BA3); meBadge.setPadding(px(this, 10), px(this, 4), px(this, 10), px(this, 4)); st.addView(meBadge, lp(this, -2, -2, 4)); // 0.1.12 owner-voice light
-    meBadge.setOnClickListener(v -> { if (WhisperService.running && System.currentTimeMillis() - WhisperService.meMatchAt < 4000) { alert("Recognised", "javis recognises " + WhisperService.matchName + "'s voice right now."); return; }
+    meBadge.setOnClickListener(v -> { if (WhisperService.running && WhisperService.curSpeaker != null) { alert("Recognised", "Last speaker: " + WhisperService.curSpeaker + ". Manage voices in Settings."); return; }
       Prefs.put(this, "cal_pending", "1"); alert("Identify yourself", "With the earbud in, say:\n\n“This is [your name] doing a mic test.”\n\njavis saves that voice under the name you say (encrypted, on this phone only) and shows the name here when it hears that voice again."); });
     routeT = text(this, "-", 13, MUTED); st.addView(routeT);
     st.addView(text(this, "Earbud mic (Me)", 12, MUTED), lp(this, -1, -2, 8)); meBar = bar(); st.addView(meBar, lp(this, -1, px(this, 10), 2));
@@ -109,6 +109,14 @@ public class MainActivity extends Activity {
     cal.setOnLongClickListener(v -> { VoiceEnroll.clear(this); Prefs.put(this, "prox_prof", ""); alert("Voice samples removed", "Press START and say: ‘This is [your name] doing a mic test.’"); return true; });
     cal.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Optional – javis also learns your voice by itself from your ‘Whisper, …’ commands. Press START first, then tap this and say one normal sentence with the earbud in."); return; }
       Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is [your name] doing a mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
+    // 0.1.13 manage voices: every enrolled voice persists until removed here; removing one never touches the others
+    c.addView(text(this, "Enrolled voices", 14, 0xFFFFFFFF), lp(this, -1, -2, 14)); voicesBox = new LinearLayout(this); voicesBox.setOrientation(LinearLayout.VERTICAL); c.addView(voicesBox); paintVoices();
+    Switch lock = new Switch(this); lock.setText("🔒 Lock: only track the voices ticked ‘Lock’ below (one or more); everything else is ignored"); lock.setTextColor(0xFFFFFFFF); lock.setChecked("1".equals(Prefs.s(this, "lock", "0"))); c.addView(lock, lp(this, -1, -2, 6));
+    lock.setOnCheckedChangeListener((v, on) -> { Prefs.put(this, "lock", on ? "1" : "0"); WhisperService.log(on ? (WhisperService.lockActive(this) ? "🔒 Lock on" : "🔒 Lock on – inactive until at least one enrolled voice is ticked") : "Lock off – listening to everyone"); });
+    Button addV = button(this, "Enroll last speaker as…", CARD); c.addView(addV, lp(this, -1, -2, 6));
+    addV.setOnClickListener(v -> { Proximity.Feat f = WhisperService.lastFeat; if (f == null) { alert("Nobody heard yet", "Press START, let the person say a sentence, then tap this. Or have them say ‘This is [name] doing a mic test’."); return; }
+      EditText nm = edit(this, "Their name", ""); new android.app.AlertDialog.Builder(this).setTitle("Enroll the last voice heard").setView(nm).setPositiveButton("Save", (dd, w) -> { String n = VoiceEnroll.clean(nm.getText().toString()); if (n.isEmpty()) return;
+        if (VoiceEnroll.isOwner(this, n)) { alert("That's you", "Use ‘Re-enroll my voice’ for your own voice."); return; } VoiceEnroll.saveNamed(this, n, f); WhisperService.log("✔ Enrolled " + n + " from the last voice heard"); paintVoices(); }).setNegativeButton("Cancel", null).show(); });
     Switch voice = new Switch(this); voice.setText("Speak whispers in earbud (off = text only)"); voice.setTextColor(0xFFFFFFFF); voice.setChecked(!"0".equals(Prefs.s(this, "voice", "1"))); c.addView(voice, lp(this, -1, -2, 10));
     voice.setOnCheckedChangeListener((v, on) -> Prefs.put(this, "voice", on ? "1" : "0"));
 
@@ -148,6 +156,16 @@ public class MainActivity extends Activity {
     startForegroundService(new Intent(this, WhisperService.class).setAction(WhisperService.ACTION_START));
     if (VoiceEnroll.needGuided(this)) alert("Voice enrollment (once)", "With the earbud in, say:\n\n“This is [your name] doing a mic test.”\n\njavis keeps this short clip encrypted on this phone only (never uploaded, conversations are never recorded) so it knows your voice from the first line.");
   }
+  CheckBox lockBox(String n) { CheckBox cb = new CheckBox(this); cb.setText("Lock"); cb.setTextColor(0xFFFFFFFF); cb.setChecked(WhisperService.lockAllowed(this).contains(n));
+    cb.setOnCheckedChangeListener((v, on) -> { Set<String> s = new LinkedHashSet<>(WhisperService.lockAllowed(this)); if (on) s.add(n); else s.remove(n); Prefs.put(this, "lock_allow", s.isEmpty() ? ";" : String.join(";", s)); }); return cb; }
+  void paintVoices() { if (voicesBox == null) return; voicesBox.removeAllViews();
+    if (VoiceEnroll.has(this)) { LinearLayout or = new LinearLayout(this); or.addView(text(this, "• " + VoiceEnroll.owner(this) + " (you) – re-enroll/reset below", 14, 0xFFFFFFFF), new LinearLayout.LayoutParams(0, -2, 1)); or.addView(lockBox(VoiceEnroll.owner(this))); voicesBox.addView(or, lp(this, -1, -2, 4)); }
+    for (String n : VoiceEnroll.voices(this).keySet()) { LinearLayout row = new LinearLayout(this); row.addView(text(this, "• " + n, 15, 0xFFFFFFFF), new LinearLayout.LayoutParams(0, -2, 1)); row.addView(lockBox(n));
+      Button re = button(this, "Re-enroll", CARD), rm = button(this, "Remove", 0xFF8E2C2C); re.setTextSize(13); rm.setTextSize(13); row.addView(re); LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(-2, -2); l.leftMargin = px(this, 6); row.addView(rm, l);
+      re.setOnClickListener(v -> { Prefs.put(this, "enroll_as", n); alert("Re-enroll " + n, "Press START (if not running) and have " + n + " say one sentence. The next voice heard is saved as " + n + "."); });
+      rm.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setTitle("Remove " + n + "?").setMessage("Only " + n + "'s voice is deleted; other enrolled voices stay.").setPositiveButton("Remove", (dd, w) -> { VoiceEnroll.removeNamed(this, n); WhisperService.log("Removed " + n + "'s voice"); paintVoices(); }).setNegativeButton("Cancel", null).show());
+      voicesBox.addView(row, lp(this, -1, -2, 4)); }
+    if (voicesBox.getChildCount() == 0) voicesBox.addView(text(this, "None yet – anyone can say ‘This is [name] doing a mic test’ (optional).", 13, MUTED)); }
   void alert(String title, String msg) { h.post(() -> { if (!isFinishing()) new android.app.AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); }); }
   static String reason(Exception e) {
     String m = String.valueOf(e.getMessage());
@@ -167,8 +185,9 @@ public class MainActivity extends Activity {
     boolean r = WhisperService.running;
     statusT.setText(WhisperService.status + (r ? " · " + mmss(System.currentTimeMillis() - WhisperService.sessionStart) : ""));
     routeT.setText(WhisperService.route + (WhisperService.lastTiming.isEmpty() ? "" : "\n" + WhisperService.lastTiming));
-    { boolean lit = r && System.currentTimeMillis() - WhisperService.meMatchAt < 4000; // lights up while Calton's voice is matched
-      meBadge.setText(lit ? "● " + WhisperService.matchName + " – voice recognised" : "○ Voice not recognised · tap for phrase");
+    { String who = r ? WhisperService.curSpeaker : null; boolean lit = who != null; // 0.1.13: shows the LATEST speaker until the next utterance
+      boolean live = r && System.currentTimeMillis() - WhisperService.curAt < 4000;
+      meBadge.setText(lit ? "● " + who + (live ? " is talking" : " (last speaker)") : r && WhisperService.curAt > 0 ? "○ Voice not recognised · tap for phrase" : "○ No speaker yet · tap for phrase"); if (r && WhisperService.lockActive(this)) meBadge.setText("🔒 " + meBadge.getText());
       meBadge.setTextColor(lit ? 0xFFFFFFFF : 0xFF9AA5B4); meBadge.setBackgroundColor(lit ? 0xFF2E9E4F : 0xFF3A4556); }
     meBar.setProgress(meter(WhisperService.levelMe)); themBar.setProgress(meter(WhisperService.levelThem));
     startB.setText(r ? "STOP" : "START listening"); startB.setBackground(round(r ? RED : GREEN, px(this, 12)));

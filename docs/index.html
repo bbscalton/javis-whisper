@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.12/JavisWhisper.apk">⬇ Download 0.1.12</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.13/JavisWhisper.apk">⬇ Download 0.1.13</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,15 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.12 – remembers who's talking</h3>Your voice is remembered across restarts, a green light shows when javis recognises a voice, voices are learned by name, and the briefing is now optional.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.12/JavisWhisper.apk">⬇ Download 0.1.12</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.13 – knows who's talking</h3>Live per-speaker badge on every utterance, optional enrollment for other people, a manage-voices list with remove/re-enroll, and an optional Lock that tracks only the voices you pick.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.13/JavisWhisper.apk">⬇ Download 0.1.13</a></div>
 </div></section>
+<div id="v0113"><section><h2>What's new in 0.1.13</h2><ul>
+<li><b>Live speaker badge.</b> Every time someone talks the badge updates: <b>green</b> “Calton is talking” (or another enrolled name), or <b>gray</b> “voice not recognised”. It keeps showing the last speaker until the next one – no more 4-second flash. Unrecognised speech is still heard and transcribed as before.</li>
+<li><b>Enroll other people (optional).</b> They say “This is [name] doing a mic test”, or tap Settings → “Enroll last speaker as…”. Nobody has to enroll – without it everything works as before.</li>
+<li><b>Manage voices.</b> Settings lists every enrolled voice with Re-enroll and Remove. Removing one never touches the others. Enrolled voices are kept (encrypted, on this phone) across restarts.</li>
+<li><b>🔒 Lock (optional).</b> Tick “Lock” next to one or more voices and turn Lock on: javis then only follows those voices and ignores everyone else and background chatter. Off = listens to everyone.</li>
+<li><b>Honest limits.</b> Voice matching is lightweight – one short sample per person and a few basic voice measurements. Similar voices (or the same person on a different mic or in a noisy room) can be mixed up, so Lock may occasionally ignore an enrolled person or let someone else through. Re-enrolling in the real setting helps.</li>
+</ul></section></div>
 <div id="v0112"><section><h2>What's new in 0.1.12</h2><ul>
 <li><b>Remembered voice identity.</b> Once javis knows your voice it keeps it (encrypted, on this phone) – no more re-doing the mic test every launch. Re-enroll or reset in Settings anytime.</li>
 <li><b>Voices learned by name.</b> Say “This is [your name] doing a mic test” and javis saves that voice under that name – for you or anyone else – and remembers it across restarts.</li>
@@ -104,4 +111,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.12 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.13 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
