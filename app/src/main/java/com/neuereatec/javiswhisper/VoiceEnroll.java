@@ -80,8 +80,7 @@ public class VoiceEnroll {
     for (int i = 0; i < MAX; i++) {
       String fl = Prefs.s(c, "enroll_f" + i, ""); if (fl.isEmpty()) continue;
       double fs = featSim(fl, f);
-      double ws = 0; byte[] ref = readPcm(c, i); if (ref != null && pcm != null && pcm.length > 800 && ref.length > 800) ws = waveSim(ref, pcm);
-      best = Math.max(best, 0.75 * fs + 0.25 * ws);
+      best = Math.max(best, fs); // 0.1.14: phrase-dependent waveSim dropped (it only matched repeats of the enrollment sentence)
     }
     return best;
   }
@@ -92,10 +91,10 @@ public class VoiceEnroll {
     double d = 0, w = 0;
     if (!Double.isNaN(f.dbDiff)) { d += Math.abs(f.dbDiff - r[0]) / 6.0; w += 1.5; }
     d += Math.abs(f.lowRatio - r[1]) / 0.12; w += 1;
-    d += Math.abs(f.hfRatio - r[2]) / 0.12; w += 1;
+    d += 0.25 * Math.abs(f.hfRatio - r[2]) / 0.12; w += 0.25; // 0.1.14: hf misled (sibilant phrase), weight 1→0.25
     d += Math.abs(f.modDb - r[3]) / 15.0; w += 1;
     d += Math.abs(f.snrDb - r[4]) / 10.0; w += 1.5;
-    if (f.pitch > 0 && r[5] > 0) { d += Math.abs(Math.log(f.pitch / r[5])) / 0.18; w += 2; }
+    if (f.pitch > 0 && r[5] > 0) { d += 4 * Math.abs(Math.log(f.pitch / r[5])) / 0.18; w += 4; } // 0.1.14: pitch-led (weight 2→4)
     double avg = d / Math.max(w, 1);
     return 1 / (1 + avg);
   }

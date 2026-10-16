@@ -15,6 +15,18 @@ import java.util.*;
  */
 public class Proximity {
   public static final double ME = 0.65, THEM = 0.35;
+  /** 0.1.14: true when no Bluetooth earbud mic is routed – the earbud-vs-phone loudness gap (Δ) is then meaningless. */
+  public static volatile boolean noEarbud;
+  /** 0.1.14 auto cutoff: EMA of Calton's confirmed scores vs clearly-other voices (pitch far from his), persisted. */
+  static double[] cal(Context c) { try { String[] a = Prefs.s(c, "me_cal", "").split(","); return new double[]{Double.parseDouble(a[0]), Double.parseDouble(a[1]), Double.parseDouble(a[2]), Double.parseDouble(a[3])}; } catch (Exception e) { return new double[]{0, 0, 0, 0}; } }
+  static synchronized void calMe(Context c, double near) { double[] k = cal(c); k[0] = k[1] < 1 ? near : k[0] + 0.15 * (near - k[0]); k[1]++; putCal(c, k); }
+  static synchronized void calOther(Context c, double near) { double[] k = cal(c); k[2] = k[3] < 1 ? near : k[2] + 0.15 * (near - k[2]); k[3]++; putCal(c, k); }
+  static void putCal(Context c, double[] k) { Prefs.put(c, "me_cal", String.format(Locale.US, "%.3f,%.0f,%.3f,%.0f", k[0], Math.min(k[1], 999), k[2], Math.min(k[3], 999))); }
+  public static double meCut(Context c) { double base = noEarbud ? 0.58 : ME; double[] k = cal(c);
+    if (k[1] >= 4 && k[3] >= 4 && k[0] > k[2] + 0.04) return Math.max(0.50, Math.min(0.70, (k[0] + k[2]) / 2)); return base; }
+  public static String band(Context c, double near) { double me = meCut(c); return near >= me ? "Me" : near <= Math.min(THEM, me - 0.15) ? "Them" : "Unsure"; }
+  /** owner's typical pitch (Hz) from the profile, or 0. */
+  public static double ownerF0(Context c) { double[] p = profile(c); return p != null && p.length >= 7 && p[6] > 0 ? p[6] : 0; }
   public static class Acc {
     // 0.1.6 prosody: pitch per voiced 20 ms frame (autocorrelation over 40 ms, 70-400 Hz), voiced frame count, overlap frames
     final ArrayList<Float> pitch = new ArrayList<>(); short[] last = new short[0]; int voicedFrames; double dbSum; int overlapFrames; final ArrayList<Float> diffs = new ArrayList<>(); float lastEdb = Float.NaN;
@@ -66,14 +78,14 @@ public class Proximity {
     double s = 0, w = 0;
     // level above own floor: near voice typically 20+ dB, across-the-table voice ~8-14 dB on the earbud mic
     double snrMid = learned ? pr[4] - 8 : 16; s += 2 * sig((f.snrDb - snrMid) / 3.0); w += 2;
-    if (!Double.isNaN(f.dbDiff)) { double mid = (learned && !Double.isNaN(pr[0]) ? pr[0] : 8) - 6; s += 3 * sig((f.dbDiff - mid) / 2.0); w += 3; }
+    if (!noEarbud && !Double.isNaN(f.dbDiff)) { double mid = (learned && !Double.isNaN(pr[0]) ? pr[0] : 8) - 6; s += 3 * sig((f.dbDiff - mid) / 2.0); w += 3; }
     double modMid = learned ? pr[3] * 0.75 : 18; s += sig((f.modDb - modMid) / 3.0); w += 1;
     if (learned && pr.length >= 8 && pr[6] > 0 && f.pitch > 0) { // 0.1.6 voice-ID: Calton's typical pitch + its range (survives AGC; distance-independent)
       double d = Math.abs(Math.log(f.pitch / pr[6])) / 0.12 + Math.abs(f.pitchSpread - pr[7]) / Math.max(pr[7], 0.1) * 0.5;
-      s += 2 * (1 - sig((d - 1.2) / 0.35)); w += 2;
+      s += 4 * (1 - sig((d - 1.2) / 0.35)); w += 4; // 0.1.14 pitch-led (2→4)
     }
     if (learned) { // spectral consistency with Calton's profile (bass + tilt)
-      double d = Math.abs(f.lowRatio - pr[1]) / Math.max(pr[1], 0.05) + Math.abs(f.hfRatio - pr[2]) / Math.max(pr[2], 0.05);
+      double d = Math.abs(f.lowRatio - pr[1]) / Math.max(pr[1], 0.05) + 0.25 * Math.abs(f.hfRatio - pr[2]) / Math.max(pr[2], 0.05); // 0.1.14 hf down-weighted
       s += 1.5 * (1 - sig((d - 0.5) / 0.15)); w += 1.5;
     }
     return s / w;
@@ -81,7 +93,7 @@ public class Proximity {
   /** 0.1.10: blend in the enrolled reference match so Me tagging works from the first line. */
   public static double nearScore(Context c, Feat f, byte[] pcm) {
     double base = nearScore(c, f); int n = VoiceEnroll.count(c); if (n == 0) return base;
-    double m = VoiceEnroll.match(c, pcm, f); return 0.6 * base + 0.4 * m;
+    double m = VoiceEnroll.match(c, pcm, f); return 0.75 * base + 0.25 * m; // 0.1.14: 0.4→0.25, feature-only match
   }
   public static String band(double near) { return near >= ME ? "Me" : near <= THEM ? "Them" : "Unsure"; }
 
