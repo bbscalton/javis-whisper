@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.20/JavisWhisper.apk">⬇ Download 0.1.20</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.21/JavisWhisper.apk">⬇ Download 0.1.21</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,15 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.20 – solo study coaching works</h3>Fixed the false "talking over each other" blocking that stopped all coaching in solo study sessions (voice lock on, just you). TTS-induced overlap is now ignored, and single-owner lock mode bypasses the overlap gate.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.20/JavisWhisper.apk">⬇ Download 0.1.20</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.21 – solo study mode complete</h3>Solo study sessions (voice lock on, just you) now work as intended: javis responds to your questions and prompts, readiness can reach the speaking threshold from your lines alone, and the "last turn was Calton" block no longer applies.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.21/JavisWhisper.apk">⬇ Download 0.1.21</a></div>
 </div></section>
+<div id="v0121"><section><h2>What's new in 0.1.21</h2><ul>
+<li><b>Solo study mode complete.</b> 0.1.20 fixed the "talking over" false block, but the coach was still held by "last turn was Calton" and multi-party engagement checks that never resolve when you're the only speaker. Now in single-owner lock mode, javis treats your turn as the cue to respond – like a study companion, not a fly on the wall.</li>
+<li><b>Readiness reaches threshold.</b> The readiness meter no longer plateaus at ~45% in solo mode. The weight that normally requires "them" lines is reallocated to your lines when there's no other party to wait for.</li>
+<li><b>Coach decision after your turn.</b> In solo mode, `coachDecide()` is triggered after your lines (not just after non-Me lines), so javis can respond to your questions and quiz prompts.</li>
+<li><b>Multi-party meetings unchanged.</b> When voice lock is off or multiple voices are tracked, the full engagement checks still apply – javis waits for the other person's turn before deciding.</li>
+<li><b>No reset needed.</b> Installs over 0.1.20; your enrolled voice and history carry over.</li>
+</ul></section></div>
 <div id="v0120"><section><h2>What's new in 0.1.20</h2><ul>
 <li><b>Solo study coaching works.</b> When voice lock is on and only you are tracked, javis no longer falsely thinks "people are talking over each other". In earlier versions, javis's own TTS voice and mic artifacts triggered the overlap detector even in a one-person study session, blocking every coaching response at high readiness (87%+).</li>
 <li><b>TTS echo overlap ignored.</b> If an utterance overlaps javis's own speech, that overlap is now ignored rather than blocking the coach. This fixes the false positives caused by the earbud's audio feeding back through the phone mic.</li>
@@ -161,4 +168,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.20 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.21 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>

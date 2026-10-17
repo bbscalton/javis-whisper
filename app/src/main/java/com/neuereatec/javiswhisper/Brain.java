@@ -119,7 +119,9 @@ public class Brain {
     int from = Math.max(0, window.size() - (sinceShift + 2)); // 0.1.15 decay: after a hard topic shift only the new lines (+2 bridge) count
     for (String l : window.subList(from, window.size())) { double w = restored.contains(l) ? RESTORED_W : 1; n += w; // 0.1.18: lines replayed after a restart count at half weight
       if (l.startsWith("[Them") || l.startsWith("[Partner") || l.startsWith("[Other")) them += w; else if (l.startsWith("[Unsure")) them += 0.5 * w; else if (l.startsWith("[Me")) me += w; int i = l.indexOf("] "); if (i > 0) words += w * l.substring(i + 2).trim().split("\\s+").length; }
-    double s = 25 * Math.min(1, n / 5.0) + 25 * Math.min(1, them / 2.5) + 15 * Math.min(1, me / 1.5) + 15 * Math.min(1, words / 90.0) // 0.1.18 faster ramp (was 6 lines / 3 theirs / 2 his / 120 words)
+    // 0.1.21: in solo study mode (singleOwnerLock), reallocate the "them" weight to owner lines – there IS no other party
+    double themW = singleOwnerLock ? 0 : 25, meW = singleOwnerLock ? 40 : 15, meDiv = singleOwnerLock ? 3.0 : 1.5;
+    double s = 25 * Math.min(1, n / 5.0) + themW * Math.min(1, them / 2.5) + meW * Math.min(1, me / meDiv) + 15 * Math.min(1, words / 90.0)
       + 20 * (topic == null || topic.isEmpty() ? 0 : Math.max(0.3, Math.min(1, confidence)) * (chunks.isEmpty() || !chunks.get(chunks.size() - 1).topic.isEmpty() ? 1 : 0.5)); // 0.1.16: half credit until the current chunk has its own topic
     if (hasBrief) s = Math.max(s, 15 + s * 0.85); // a briefing gives a head start
     long idle = lastHeardAt == 0 ? 0 : System.currentTimeMillis() - lastHeardAt; if (idle > 60_000) s *= Math.max(0.4, 1 - 0.6 * (idle - 60_000) / 240_000.0); // stale context eases down
@@ -157,11 +159,15 @@ public class Brain {
     if (monologue) return "one voice talking on with no reply from Calton (video or speech) – background";
     // 0.1.20: with voice-lock on and only the owner tracked, "talking over" is a false positive (there is no second person)
     if (now - overlapAt < 3000 && !singleOwnerLock) return "people are talking over each other – waiting";
-    if ("Me".equals(lastSpk) || lastSpk.isEmpty()) return "last turn was Calton"; // 0.1.19: Them and Unsure lines both open the coach
-    // 0.1.7: with only one far voice (no partner linked yet), one exchange with Calton is enough – or a pre-brief says he's in a conversation
-    boolean oneVoiceExchange = partner == null && lastMeAt > 0 && (now - lastMeAt < 60_000 || (hasBrief && now - lastMeAt < 180_000));
-    if (!engaged(now) && !oneVoiceExchange) return "background – Calton hasn't spoken with this voice yet";
-    if (!lastThemPartner) return "a different far voice (not his partner) – waiting it out";
+    // 0.1.21: in single-owner lock mode (solo study), the owner's turn IS the cue – don't wait for a "them" that won't come
+    if (!singleOwnerLock && ("Me".equals(lastSpk) || lastSpk.isEmpty())) return "last turn was Calton";
+    // 0.1.21: solo study mode skips the multi-party engagement checks – javis IS the other party
+    if (!singleOwnerLock) {
+      // 0.1.7: with only one far voice (no partner linked yet), one exchange with Calton is enough – or a pre-brief says he's in a conversation
+      boolean oneVoiceExchange = partner == null && lastMeAt > 0 && (now - lastMeAt < 60_000 || (hasBrief && now - lastMeAt < 180_000));
+      if (!engaged(now) && !oneVoiceExchange) return "background – Calton hasn't spoken with this voice yet";
+      if (!lastThemPartner) return "a different far voice (not his partner) – waiting it out";
+    }
     int k = si(settingNow());
     if (now - lastCoachAt < COOLDOWN[k] * 1000L) return "cooldown (" + settingNow() + ")";
     boolean enough = speakerTurns >= MIN_TURNS[k] || window.size() >= MIN_TURNS[k];
