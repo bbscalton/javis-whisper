@@ -124,16 +124,25 @@ public class Brain {
     if (!spk.equals(lastSpk)) speakerTurns++; lastSpk = spk; turnsSinceTopic++;
   }
   
-  // 0.1.22: declared context detection – auto-detect from owner's first turns or explicit briefing
+  // 0.1.22: declared context detection – auto-detect from owner's first SUBSTANTIVE turns
+  // Skip wake words, mic tests, and fragments – only real intent statements count
   synchronized void updateDeclaredContext(String text) {
-    if (contextLocked || ownerTurnsForContext >= CONTEXT_TURNS_LIMIT) return;
+    if (contextLocked) return;
+    // Skip non-substantive lines: wake words alone, mic tests, fragments
+    if (text == null || text.trim().length() < 5) return;
+    String lc = text.toLowerCase(Locale.US).trim();
+    // Skip if it's just the wake word or a mic test
+    if (lc.matches("^(javis|jarvis|whisper|hey javis|ok javis)\\W*$")) return;
+    if (Guard.isVoiceTest(text)) return;
+    if (Guard.unclear(text) != null) return; // fragments, foreign language misheard
+    // This is a substantive owner turn
     ownerTurnsForContext++;
+    if (ownerTurnsForContext > CONTEXT_TURNS_LIMIT) return;
     // Look for intent statements: "I'm about to...", "I'm going to...", "help me with...", etc.
-    String lc = text.toLowerCase(Locale.US);
     boolean hasIntent = lc.matches(".*\\b(i'm about to|i am about to|i'm going to|i am going to|going into|help me with|help with|about to|need help|gonna)\\b.*")
                      || lc.matches(".*\\b(buy|purchase|talk to|speak with|meeting with|negotiate|sell|shop)\\b.*");
     if (hasIntent || ownerTurnsForContext == 1) {
-      // First owner turn or explicit intent → use as declared context
+      // First substantive owner turn or explicit intent → use as declared context
       if (declaredContext.isEmpty()) {
         declaredContext = text;
         WhisperService.log("📋 Declared context (auto): " + People.clip(text, 60));
@@ -143,7 +152,7 @@ public class Brain {
         WhisperService.log("📋 Declared context (updated): " + People.clip(text, 60));
       }
     }
-    // Lock after 3 turns or after a clear intent statement
+    // Lock after 3 substantive turns or after a clear intent statement
     if (ownerTurnsForContext >= CONTEXT_TURNS_LIMIT || hasIntent) {
       contextLocked = true;
     }

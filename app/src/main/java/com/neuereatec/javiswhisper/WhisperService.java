@@ -557,22 +557,22 @@ public class WhisperService extends Service {
   void addCtx(String role, String content) { try { synchronized (ctx) { ctx.add(new JSONObject().put("role", role).put("content", content)); while (ctx.size() > 30) ctx.removeFirst(); } } catch (Exception ignored) {} }
   
   // 0.1.22: mic overhearing filter – determine if a line should drive topic classification
-  // Only owner's voice-verified turns + engaged partner should influence topics
-  // Far-field, low-SNR, or unrecognized voices might be room audio (TV, nearby conversation)
-  static final double TOPIC_TRACK_SNR_MIN = 0.4; // minimum SNR to trust for topic tracking
-  static final double TOPIC_TRACK_NEAR_MIN = 0.35; // minimum near score for topic tracking
+  // Owner-verified lines ALWAYS count (even at low SNR – Calton's own speech varies)
+  // SNR/near filter only applies to non-owner voices (unknown, partner candidates, room audio)
+  static final double TOPIC_TRACK_SNR_MIN = 4.0; // minimum SNR dB for non-owner voices
+  static final double TOPIC_TRACK_NEAR_MIN = 0.35; // minimum near score for non-owner voices
   boolean shouldTrackTopics(String spk, double near, Proximity.Feat pf) {
-    // Owner always tracks (voice-verified)
+    // Owner-verified lines ALWAYS track – Calton's real speech can have low SNR
     if ("Me".equals(spk)) return true;
     // Engaged partner tracks (Calton is talking WITH them)
     if ("Them".equals(spk) && brain.lastThemPartner) return true;
-    // Far-field or low-SNR = likely room audio / mic overhearing
-    if (pf.snrDb < TOPIC_TRACK_SNR_MIN * 10) { // snrDb is in dB, rough threshold
-      log("(excluded from topic tracking: low SNR " + String.format(Locale.US, "%.1f dB", pf.snrDb) + ")");
+    // For non-owner voices: apply SNR/near filter to catch room audio
+    if (pf.snrDb < TOPIC_TRACK_SNR_MIN) {
+      log("(excluded from topic tracking: unverified voice, low SNR " + String.format(Locale.US, "%.1f dB", pf.snrDb) + ")");
       return false;
     }
     if (near < TOPIC_TRACK_NEAR_MIN) {
-      log("(excluded from topic tracking: far-field near=" + String.format(Locale.US, "%.2f", near) + ")");
+      log("(excluded from topic tracking: unverified voice, far-field near=" + String.format(Locale.US, "%.2f", near) + ")");
       return false;
     }
     // Unsure voices with reasonable SNR/near can track (might be partner)
