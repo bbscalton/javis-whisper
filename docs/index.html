@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.21/JavisWhisper.apk">⬇ Download 0.1.21</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.22/JavisWhisper.apk">⬇ Download 0.1.22</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,17 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.21 – comprehension restored</h3>Restored the original comprehension structure where the model sees context and decides what to say. Removed gates that were blocking the coach from understanding and responding. Detection is now secondary – it can lower confidence but never blocks comprehension. The model decides, not the filters.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.21/JavisWhisper.apk">⬇ Download 0.1.21</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.22 – live topic only</h3>Fixed off-thread topic injection: javis no longer whispers about old topics (like Mounjaro) when you're in a new conversation (like a computer store). Topic now comes only from this session's live transcript or your pre-brief, not from saved notes or earlier sessions.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.22/JavisWhisper.apk">⬇ Download 0.1.22</a></div>
 </div></section>
+<div id="v0122"><section><h2>What's new in 0.1.22</h2><ul>
+<li><b>Live topic only.</b> javis now derives the topic entirely from what's said in THIS session (or your pre-brief). Old session summaries and learned memory no longer inject topics into new conversations. If you said you're going to a computer store, javis won't suddenly whisper about medications from a past conversation.</li>
+<li><b>Off-thread guard.</b> Before whispering, javis checks that any specific terms (medications, technical topics) actually appeared in this session. If a term wasn't said yet, the whisper is dropped with "(dropped: off-thread topic)".</li>
+<li><b>Learned note stripped of topics.</b> Your saved "learned" note still carries your preferred whisper style, but topic keywords are stripped before reaching the prompt – they can't override the live conversation.</li>
+<li><b>Resume without old topic.</b> When resuming a session, javis replays recent lines but clears the old topic state. The topic will be re-derived from what you say now, not carried forward from before.</li>
+<li><b>Person card stripped of old topics.</b> Past conversation topics with a person are no longer shown to the model – only the person's name and relationship remain.</li>
+<li><b>Hard prompt instruction.</b> A new rule in the prompt: "Never bring up a subject, product, medication, person, or topic unless it was actually said in THIS session or is in the PRE-BRIEF."</li>
+<li><b>No reset needed.</b> Installs over 0.1.21; your enrolled voice and history carry over. Your learned notes are not deleted – they're just filtered before reaching the prompt.</li>
+</ul></section></div>
 <div id="v0121"><section><h2>What's new in 0.1.21</h2><ul>
 <li><b>Comprehension restored.</b> Returned to the original v0.1.2-v0.1.3 structure where the model sees the full context and decides what's worth saying. Later versions added gates that stopped comprehension – those are removed.</li>
 <li><b>"Last turn was Calton" gate removed.</b> Your own turn is now a cue to respond, not a block. This fixes solo study sessions and makes normal conversations flow naturally.</li>
@@ -170,4 +179,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.21 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.22 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>

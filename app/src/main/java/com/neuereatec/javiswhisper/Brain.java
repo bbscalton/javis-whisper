@@ -166,6 +166,7 @@ public class Brain {
   }
   JSONArray assessMessages(Context c, Db.Session s) throws JSONException {
     // 0.1.7: compact prompt (~40% shorter than 0.1.6) – suggestions only, never questions back to Calton
+    // 0.1.22: HARD RULE – never bring up topics not in this session or the briefing
     String sys = "You are javis – a friend in Calton's ear who helps him make good decisions in the conversation around him (he's in Guyana, speaks English). "
       + "Return ONLY compact JSON: {\"topic\":\"<best guess, 3-8 words – guess even from one line>\",\"confidence\":0..1,\"open_question\":\"<unresolved point or ''>\",\"mid_topic\":true|false,"
       + "\"calton_engaged\":0..1,\"kind\":\"recommend\"|\"risk\"|\"better_option\"|\"next_step\"|\"fact\"|\"answer\"|\"fact_error\"|\"none\",\"say\":\"<≤12 words or SKIP>\",\"setting\":\"negotiation|sale|meeting|call|casual|family|street\",\"setting_conf\":0..1,"
@@ -178,15 +179,42 @@ public class Brain {
       + "Never correct a joke or sarcasm. Cues in [tags] (hesitant, louder, fast, long pause, talked over) are hints from mic sound, not facts; you can't see faces. Plain warm words, contractions, lead with the point.\n"
       + "[Me]=Calton, [Them]/[Partner]=the other person, [Other]=a different far voice, [Unsure]=unclear. Speech recognition may have errors.\n"
       + Guard.clock() + " " + Guard.RULES + "\n"
+      + "CRITICAL: Never bring up a subject, product, medication, person, or topic unless it was actually said in THIS session or is in the PRE-BRIEF below. If you have nothing relevant to THIS conversation, SKIP.\n"
       + "SETTING: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ". " + GUYANA_SHORT;
     if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\nPRE-BRIEF (start with this context): " + People.clip(s.prebrief, 300);
-    // 0.1.21: background and learned memory are low-weight – NEVER override the live conversation's actual topic
-    if (!background.isEmpty()) sys += "\nBACKGROUND (earlier session, probably unrelated – ignore unless the current conversation clearly returns to it): " + People.clip(background, 200);
+    // 0.1.22: NO earlier-session background or learned topics in the prompt – only style hints
+    // Old topics caused the model to whisper about Mounjaro when Calton was going to a computer store
     if (!goal.isEmpty()) sys += "\nCALTON'S GOAL: " + goal + " – steer him toward it.";
-    if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(personCard, 400);
-    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nLow-priority background (style hints only, NOT the topic): " + People.clip(learned, 150);
-    String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far, split into topic chunks (oldest first, live speech recognition, may have errors). If the CURRENT chunk is on a different subject than the previous state, report the NEW topic:\n" + chunkedTranscript();
+    if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(stripTopicsFromCard(personCard), 400);
+    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nCalton's style (NOT topics): " + People.clip(stripTopics(learned), 100);
+    // 0.1.22: don't show "Previous state" with old topic – the model must derive topic from live transcript only
+    String u = "Conversation so far, split into topic chunks (oldest first, live speech recognition, may have errors). Derive the topic from what was ACTUALLY SAID:\n" + chunkedTranscript();
     return new JSONArray().put(Learn.msg("system", sys)).put(Learn.msg("user", u));
+  }
+  
+  // 0.1.22: strip topic-related content from learned notes, keeping only style preferences
+  static String stripTopics(String learned) {
+    if (learned == null || learned.isEmpty()) return "";
+    // Remove "recurring topics: ..." and similar topic listings
+    String s = learned.replaceAll("(?i)recurring topics?:?[^.;]*[.;]?", "")
+                      .replaceAll("(?i)topics?:?[^.;]*[.;]?", "")
+                      .replaceAll("(?i)\\b(Mounjaro|Ozempic|Zepbound|Wegovy|semaglutide|tirzepatide|GLP-1|medication|medical|health|doctor|network|networking|wifi|router|solar|inverter|battery|CCTV|camera)\\b[^.;]*[.;]?", "")
+                      .replaceAll("\\s+", " ").trim();
+    // If nothing useful remains, return empty
+    return s.length() < 10 ? "" : s;
+  }
+  
+  // 0.1.22: strip past conversation topics from person cards, keeping only relationship and name
+  static String stripTopicsFromCard(String card) {
+    if (card == null || card.isEmpty()) return "";
+    // Keep PERSON line but strip "Last time" sections which contain old topics
+    StringBuilder b = new StringBuilder();
+    for (String line : card.split("\n")) {
+      if (line.startsWith("Last time")) continue; // skip old conversation topics
+      if (line.contains("topic:")) continue; // skip topic references
+      b.append(line).append("\n");
+    }
+    return b.toString().trim();
   }
   /** Apply the model's state update and run the final coach gate. Returns text to whisper, or null. */
   String gate(JSONObject j, long now) {
@@ -204,11 +232,48 @@ public class Brain {
     // Keep: never correct a joke, never ask Calton questions
     if ("fact_error".equals(kind) && ("joking".equals(lastTone) || "sarcastic".equals(lastTone))) return null;
     if (isQuestionToCalton(say)) { WhisperService.log("(dropped a question: " + say + ")"); return null; }
+    // 0.1.22: off-thread topic guard – drop whispers that name topics not in this session or prebrief
+    String offThread = offThreadTopic(say); if (offThread != null) { WhisperService.log("(dropped: off-thread topic \"" + offThread + "\" – " + say + ")"); return null; }
     // 0.1.21: lowered confidence thresholds – let the model help even when unsure, it can SKIP if it has nothing
     double need = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind) ? 0.30 : 0.35;
     if (confidence < need) { WhisperService.log("(low confidence " + String.format(Locale.US, "%.2f", confidence) + " – letting it through anyway)"); }
     // 0.1.21: removed readiness gate and alignment gate – the model sees the full context and decides
     lastCoachAt = now; return say;
+  }
+  
+  // 0.1.22: known topic terms that should NOT appear unless actually in this session
+  static final Set<String> OFF_THREAD_TERMS = new HashSet<>(Arrays.asList(
+    "mounjaro", "ozempic", "zepbound", "wegovy", "semaglutide", "tirzepatide", "glp-1", "glp1",
+    "insulin", "cortisone", "medication", "prescription", "dosage", "injection", "pen",
+    "diet", "weight loss", "side effect", "nausea"
+  ));
+  
+  /** Returns the off-thread term found in say, or null if the whisper is on-topic. */
+  synchronized String offThreadTopic(String say) {
+    if (say == null || say.isEmpty()) return null;
+    Set<String> sayWords = kws(say.toLowerCase(Locale.US));
+    // Build vocabulary from this session's transcript + prebrief
+    Set<String> sessionVocab = new HashSet<>();
+    for (String line : window) {
+      int i = line.indexOf("] ");
+      if (i > 0) sessionVocab.addAll(kws(line.substring(i + 2).toLowerCase(Locale.US)));
+    }
+    for (Chunk c : chunks) sessionVocab.addAll(c.kw);
+    // prebrief is stored in hasBrief / topic at start – we check current topic too
+    if (!topic.isEmpty()) sessionVocab.addAll(kws(topic.toLowerCase(Locale.US)));
+    // Check if say contains a known off-thread term that's NOT in session
+    for (String term : OFF_THREAD_TERMS) {
+      String stem = stem(term);
+      for (String w : sayWords) {
+        if (w.equals(term) || stem(w).equals(stem)) {
+          // Is this term in the session?
+          boolean inSession = false;
+          for (String sv : sessionVocab) if (sv.equals(term) || stem(sv).equals(stem)) { inSession = true; break; }
+          if (!inSession) return term;
+        }
+      }
+    }
+    return null;
   }
   // ================= 0.1.18 =================
   static final double RESTORED_W = 0.5; static final int READY = 55, URGENT_READY = 35, PRE_READY = 30; static final long LABEL_MS = 15 * 60_000L, DRIFT_DECAY_MS = 5 * 60_000L, DRIFT_DROP_MS = 10 * 60_000L;

@@ -137,19 +137,25 @@ public class WhisperService extends Service {
       brain.singleOwnerLock = isSingleOwnerLock(this); // 0.1.20: overlap blocking disabled in single-owner lock mode
       if ("1".equals(Prefs.s(this, "lock", "0"))) log(lockActive(this) ? "🔒 Lock on – only tracking: " + String.join(", ", lockAllowed(this)) : "🔒 Lock is on but no enrolled voice is selected – listening to everyone for now"); if (ownerKnown) { brain.meSeen = true; log("✔ Voice remembered – no mic test needed. Re-enroll in Settings anytime."); }
       final String pb = prebrief; // the real brief only (inferred context below never creates people)
+      // 0.1.22: NO earlier-session background – it caused off-thread topic injection (e.g. Mounjaro in a computer store)
       // 0.1.12 optional briefing: no pre-brief → carry context from a recent session (last 6 h) if there is one
       if (resumed && prebrief.isEmpty() && sess.prebrief != null) prebrief = sess.prebrief;
-      brain.background = ""; // 0.1.19: an earlier session's summary is background only – no head start, not a pre-brief
-      if (!resumed && prebrief.isEmpty()) try { for (Db.Session ps : db.d().sessions()) { if (ps.id == sess.id || ps.summary == null || ps.summary.isEmpty()) continue; if (System.currentTimeMillis() - ps.started < 6 * 3600_000L) { brain.background = People.clip(ps.summary, 300); log("Earlier session kept as background only (may be unrelated)"); } break; } } catch (Throwable ignored) {}
+      brain.background = ""; // 0.1.22: never inject earlier-session background – topic must come from live conversation only
+      // Removed: earlier session summary injection that caused off-thread topics
       if (prebrief.isEmpty() && !resumed) log("No briefing – javis will work out the topic as it listens");
       brain.resetCtx(); readiness = 0; readyWhy = "";
       brain.hasBrief = !prebrief.isEmpty(); if (brain.hasBrief) brain.topic = People.clip(prebrief, 60); people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
       if (resumed) try { // 0.1.18: replay recent lines + restore topic/domain + current person
         List<Db.Turn> tl = db.d().tail(sess.id, Math.max(sess.started, resumeAct - Math.max(resumeMs, 20 * 60_000L)), 40); int n = brain.restore(tl);
         for (Db.Turn t : tl) if ("heard".equals(t.kind) || "command".equals(t.kind)) addCtx("user", "[" + t.speaker + "] " + t.text); else if ("whisper".equals(t.kind)) addCtx("assistant", t.text);
-        JSONObject sj = sess.ctx == null || sess.ctx.isEmpty() ? null : new JSONObject(sess.ctx); brain.applySnapshot(sj);
-        long pid = sj == null ? 0 : sj.optLong("personId", 0); if (pid > 0) { Db.Person pp = db.d().person(pid); if (pp != null) { people.cur = pp; people.convoStart = sj.optLong("convoStart", System.currentTimeMillis()); people.card = people.buildCard(pp); brain.personCard = people.card; } }
-        log("↩ Resumed your conversation from " + new java.text.SimpleDateFormat("h:mm a", Locale.US).format(new Date(resumeAct)) + " · " + n + " recent lines" + (brain.topic.isEmpty() ? "" : " · topic: " + brain.topic) + (people.cur == null ? "" : " · with " + people.cur.name) + " (Start fresh in Settings to begin a new one)");
+        // 0.1.22: only restore person, NOT topic state – topic must come from live conversation or prebrief
+        // Old behavior: brain.applySnapshot(sj) restored old topic which then overrode live conversation
+        JSONObject sj = sess.ctx == null || sess.ctx.isEmpty() ? null : new JSONObject(sess.ctx);
+        // Only restore person linkage, NOT topic/topicKw/label which caused off-thread injection
+        long pid = sj == null ? 0 : sj.optLong("personId", 0); if (pid > 0) { Db.Person pp = db.d().person(pid); if (pp != null) { people.cur = pp; people.convoStart = sj.optLong("convoStart", System.currentTimeMillis()); people.card = people.buildCard(pp); brain.personCard = Brain.stripTopicsFromCard(people.card); } }
+        // 0.1.22: clear topic state so it's derived fresh from live conversation
+        brain.topic = ""; brain.confidence = 0; brain.topicKw.clear(); brain.label = ""; brain.labelAt = 0;
+        log("↩ Resumed session from " + new java.text.SimpleDateFormat("h:mm a", Locale.US).format(new Date(resumeAct)) + " · " + n + " recent lines" + (people.cur == null ? "" : " · with " + people.cur.name) + " · topic will come from what you say now");
         readiness = brain.readiness();
       } catch (Throwable t) { log("(resume: " + t.getMessage() + ")"); }
       brain.onState = () -> ctxDirty = true;
