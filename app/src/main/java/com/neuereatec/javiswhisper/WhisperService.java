@@ -144,7 +144,8 @@ public class WhisperService extends Service {
       // Removed: earlier session summary injection that caused off-thread topics
       if (prebrief.isEmpty() && !resumed) log("No briefing – javis will work out the topic as it listens");
       brain.resetCtx(); readiness = 0; readyWhy = "";
-      brain.hasBrief = !prebrief.isEmpty(); if (brain.hasBrief) brain.topic = People.clip(prebrief, 60); people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
+      brain.hasBrief = !prebrief.isEmpty(); if (brain.hasBrief) { brain.topic = People.clip(prebrief, 60); brain.declaredContext = prebrief; brain.contextLocked = true; } // 0.1.22: prebrief IS the declared context
+      people = new People(this); brain.override = Prefs.s(this, "setting", "auto");
       if (resumed) try { // 0.1.18: replay recent lines + restore topic/domain + current person
         List<Db.Turn> tl = db.d().tail(sess.id, Math.max(sess.started, resumeAct - Math.max(resumeMs, 20 * 60_000L)), 40); int n = brain.restore(tl);
         for (Db.Turn t : tl) if ("heard".equals(t.kind) || "command".equals(t.kind)) addCtx("user", "[" + t.speaker + "] " + t.text); else if ("whisper".equals(t.kind)) addCtx("assistant", t.text);
@@ -423,7 +424,12 @@ public class WhisperService extends Service {
         log("(wake word but voice " + ("Unsure".equals(spk) ? "unsure" : "not near") + " – treated as conversation)");
       }
       saveTurn("heard", spk, english ? "en" : "", text, u.startWall);
-      addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text, u.startWall, System.currentTimeMillis() - u.vadMs - (SystemClock.uptimeMillis() - u.endUp), pf, cues);
+      // 0.1.22: mic overhearing filter – only verified owner + engaged partner drive topic classification
+      // Far-field, low-SNR, or voice-lock-rejected lines should not contaminate topic tracking
+      boolean trackTopics = shouldTrackTopics(spk, near, pf);
+      addCtx("user", "[" + spk + "] " + text); brain.heard(spk, text, u.startWall, System.currentTimeMillis() - u.vadMs - (SystemClock.uptimeMillis() - u.endUp), pf, cues, trackTopics);
+      // 0.1.22: check for context shift on owner turns
+      if ("Me".equals(spk)) brain.checkContextShift(text);
       try { brain.noteTurn(pf.overlap); readiness = brain.readiness(); readyNoisy = brain.noisy(); String g = brain.preGate(System.currentTimeMillis(), false); readyWhy = g == null ? "" : g; log("(ready " + readiness + "% · " + (g == null ? "open – coach may decide" : "blocked: " + g) + ")"); } catch (Throwable ignored) {} // 0.1.15 meter · 0.1.19 logged per line
       // ---- 0.1.5 people memory: learn names, attach the person, learn their voice once linked ----
       String nm = People.nameIn(text, spk);
@@ -549,6 +555,30 @@ public class WhisperService extends Service {
       long now = SystemClock.uptimeMillis(); playingUntil = Math.max(playingUntil, now) + pcm.length / 32 + 300; } catch (Throwable ignored) {}
   }
   void addCtx(String role, String content) { try { synchronized (ctx) { ctx.add(new JSONObject().put("role", role).put("content", content)); while (ctx.size() > 30) ctx.removeFirst(); } } catch (Exception ignored) {} }
+  
+  // 0.1.22: mic overhearing filter – determine if a line should drive topic classification
+  // Only owner's voice-verified turns + engaged partner should influence topics
+  // Far-field, low-SNR, or unrecognized voices might be room audio (TV, nearby conversation)
+  static final double TOPIC_TRACK_SNR_MIN = 0.4; // minimum SNR to trust for topic tracking
+  static final double TOPIC_TRACK_NEAR_MIN = 0.35; // minimum near score for topic tracking
+  boolean shouldTrackTopics(String spk, double near, Proximity.Feat pf) {
+    // Owner always tracks (voice-verified)
+    if ("Me".equals(spk)) return true;
+    // Engaged partner tracks (Calton is talking WITH them)
+    if ("Them".equals(spk) && brain.lastThemPartner) return true;
+    // Far-field or low-SNR = likely room audio / mic overhearing
+    if (pf.snrDb < TOPIC_TRACK_SNR_MIN * 10) { // snrDb is in dB, rough threshold
+      log("(excluded from topic tracking: low SNR " + String.format(Locale.US, "%.1f dB", pf.snrDb) + ")");
+      return false;
+    }
+    if (near < TOPIC_TRACK_NEAR_MIN) {
+      log("(excluded from topic tracking: far-field near=" + String.format(Locale.US, "%.2f", near) + ")");
+      return false;
+    }
+    // Unsure voices with reasonable SNR/near can track (might be partner)
+    return true;
+  }
+  
   // 0.1.18: throttled topic/domain snapshot into sessions.ctx (survives swipe-kill)
   volatile boolean ctxDirty; long ctxSavedAt; boolean resumed; long resumeAct;
   synchronized void saveCtx(boolean force) { if (sess == null || !ctxDirty || (!force && System.currentTimeMillis() - ctxSavedAt < 5000)) return;
