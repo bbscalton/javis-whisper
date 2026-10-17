@@ -17,6 +17,10 @@ public class Brain {
   final List<String> window = new ArrayList<>();   // "[Me] …" / "[Them] …" / "[Unsure] …" lines, last ~40
   String topic = "", openQuestion = ""; double confidence; long topicSince, lastCoachAt; int turnsSinceTopic, speakerTurns, unsure; long lastMeAt; String lastSpk = "";
   final long sessionStart = System.currentTimeMillis();
+  
+  // 0.1.22: declared context – the user's opening statement of intent (from briefing or first owner turns)
+  String declaredContext = ""; int ownerTurnsForContext = 0; boolean contextLocked = false;
+  static final int CONTEXT_TURNS_LIMIT = 3; // detect from first 3 owner turns
 
   // ---- 0.1.5 room context: the setting changes how often and what javis whispers ----
   static final String[] SETTINGS = {"negotiation", "sale", "meeting", "call", "casual", "family", "street"};
@@ -97,8 +101,10 @@ public class Brain {
     return hit >= 1 ? "shared words" : question ? "answered a question" : "topic match";
   }
 
-  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f) { heard(spk, text, startWall, endWall, f, ""); }
-  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f, String cues) {
+  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f) { heard(spk, text, startWall, endWall, f, "", true); }
+  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f, String cues) { heard(spk, text, startWall, endWall, f, cues, true); }
+  /** 0.1.22: trackTopics=false for lines that should be logged but not drive topic classification (mic overhearing). */
+  void heard(String spk, String text, long startWall, long endWall, Proximity.Feat f, String cues, boolean trackTopics) {
     String tag = spk;
     if ("Them".equals(spk) && "Them".equals(lastSpk) && lastThemEnd > 0) { long g = startWall - lastThemEnd; if (g > 150 && g < 4000) themGapEma += 0.3 * (g * 1.0 - themGapEma); }
     if ("Them".equals(spk)) { double[] v = fv(f); double pm = partnerMatch(v); lastThemPartner = partner == null || pm >= 0.5;
@@ -107,10 +113,60 @@ public class Brain {
     else if ("Me".equals(spk)) { String why = checkMembership(text, startWall, 0); if (why != null) WhisperService.log("🤝 Calton is in this conversation (" + why + ")"); }
     if ("Me".equals(spk)) quickLabel(text);
     String wl = "[" + tag + (cues == null || cues.isEmpty() ? "" : " · " + cues) + "] " + text; window.add(wl); while (window.size() > 40) { restored.remove(window.get(0)); window.remove(0); }
-    trackTopic(spk, text);
-    if (chunkLine(wl, text, startWall)) { sinceShift = 0; WhisperService.log("(✂ new topic chunk – content shifted)"); }
+    // 0.1.22: only track topics from verified owner + engaged partner turns, not mic overhearing
+    if (trackTopics) {
+      trackTopic(spk, text);
+      if (chunkLine(wl, text, startWall)) { sinceShift = 0; WhisperService.log("(✂ new topic chunk – content shifted)"); }
+      // 0.1.22: detect declared context from early owner turns
+      if ("Me".equals(spk) && !contextLocked) updateDeclaredContext(text);
+    }
     if ("Me".equals(spk)) { lastMeAt = System.currentTimeMillis(); lastMeEnd = endWall; }
     if (!spk.equals(lastSpk)) speakerTurns++; lastSpk = spk; turnsSinceTopic++;
+  }
+  
+  // 0.1.22: declared context detection – auto-detect from owner's first SUBSTANTIVE turns
+  // Skip wake words, mic tests, and fragments – only real intent statements count
+  synchronized void updateDeclaredContext(String text) {
+    if (contextLocked) return;
+    // Skip non-substantive lines: wake words alone, mic tests, fragments
+    if (text == null || text.trim().length() < 5) return;
+    String lc = text.toLowerCase(Locale.US).trim();
+    // Skip if it's just the wake word or a mic test
+    if (lc.matches("^(javis|jarvis|whisper|hey javis|ok javis)\\W*$")) return;
+    if (Guard.isVoiceTest(text)) return;
+    if (Guard.unclear(text) != null) return; // fragments, foreign language misheard
+    // This is a substantive owner turn
+    ownerTurnsForContext++;
+    if (ownerTurnsForContext > CONTEXT_TURNS_LIMIT) return;
+    // Look for intent statements: "I'm about to...", "I'm going to...", "help me with...", etc.
+    boolean hasIntent = lc.matches(".*\\b(i'm about to|i am about to|i'm going to|i am going to|going into|help me with|help with|about to|need help|gonna)\\b.*")
+                     || lc.matches(".*\\b(buy|purchase|talk to|speak with|meeting with|negotiate|sell|shop)\\b.*");
+    if (hasIntent || ownerTurnsForContext == 1) {
+      // First substantive owner turn or explicit intent → use as declared context
+      if (declaredContext.isEmpty()) {
+        declaredContext = text;
+        WhisperService.log("📋 Declared context (auto): " + People.clip(text, 60));
+      } else if (hasIntent) {
+        // Update if this one has clearer intent
+        declaredContext = text;
+        WhisperService.log("📋 Declared context (updated): " + People.clip(text, 60));
+      }
+    }
+    // Lock after 3 substantive turns or after a clear intent statement
+    if (ownerTurnsForContext >= CONTEXT_TURNS_LIMIT || hasIntent) {
+      contextLocked = true;
+    }
+  }
+  
+  /** 0.1.22: allow updating declared context when user clearly declares a new one mid-session. */
+  synchronized void checkContextShift(String text) {
+    String lc = text.toLowerCase(Locale.US);
+    // Explicit new context declarations: "now I'm going to...", "next I need to...", "changing topic..."
+    if (lc.matches(".*\\b(now i'm|now i am|next i|different topic|new topic|change of topic|let's talk about|let me talk about)\\b.*")) {
+      declaredContext = text;
+      contextLocked = true;
+      WhisperService.log("📋 Declared context (new): " + People.clip(text, 60));
+    }
   }
   /** 0.1.15 readiness meter (0–100): how much real context the coach has – turns, the other person's lines, Calton's lines, words, inferred topic. Heuristic. */
   synchronized int readiness() {
@@ -149,7 +205,7 @@ public class Brain {
     StringBuilder b = new StringBuilder(); int n = chunks.size();
     for (int i = Math.max(0, n - 4); i < n - 1; i++) { Chunk c = chunks.get(i); b.append("— earlier chunk ").append(i - n + 1).append(c.topic.isEmpty() ? "" : " (topic: " + c.topic + ")").append(" —\n").append(String.join("\n", c.lines.subList(Math.max(0, c.lines.size() - 3), c.lines.size()))).append("\n"); }
     Chunk cur = chunks.get(n - 1); b.append("— CURRENT chunk (judge the topic from this; opened by: ").append(cur.why).append(") —\n").append(String.join("\n", cur.lines)); return b.toString(); }
-  synchronized void resetCtx() { restored.clear(); topicKw.clear(); label = ""; labelAt = 0; lastOnTopicAt = 0; chunks.clear(); lastLineWall = 0; lowOverlapRun = 0; sinceShift = 1000; lastHeardAt = 0; ovl.clear(); window.clear(); speakerTurns = 0; turnsSinceTopic = 0; topic = ""; confidence = 0; openQuestion = ""; lastSpk = ""; }
+  synchronized void resetCtx() { restored.clear(); topicKw.clear(); label = ""; labelAt = 0; lastOnTopicAt = 0; chunks.clear(); lastLineWall = 0; lowOverlapRun = 0; sinceShift = 1000; lastHeardAt = 0; ovl.clear(); window.clear(); speakerTurns = 0; turnsSinceTopic = 0; topic = ""; confidence = 0; openQuestion = ""; lastSpk = ""; declaredContext = ""; ownerTurnsForContext = 0; contextLocked = false; }
   /** 0.1.21: Minimal pre-gate – only block on active collision or hard limits.
    * The model decides what's worth saying; detection lowers confidence, never blocks comprehension.
    * Removed: "last turn was Calton", engagement checks, partner checks, readiness threshold.
@@ -166,7 +222,9 @@ public class Brain {
   }
   JSONArray assessMessages(Context c, Db.Session s) throws JSONException {
     // 0.1.7: compact prompt (~40% shorter than 0.1.6) – suggestions only, never questions back to Calton
-    String sys = "You are javis – a friend in Calton's ear who helps him make good decisions in the conversation around him (he's in Guyana, speaks English). "
+    // 0.1.22: HARD RULE – never bring up topics not in this session or the briefing
+    // 0.1.22: restored v0.1.3 persona feel – "personal assistant whispering live" rather than abstract "friend"
+    String sys = "You are javis, Calton's personal assistant, whispering live into his earbud while he talks with people. Calton lives in Guyana and speaks English. "
       + "Return ONLY compact JSON: {\"topic\":\"<best guess, 3-8 words – guess even from one line>\",\"confidence\":0..1,\"open_question\":\"<unresolved point or ''>\",\"mid_topic\":true|false,"
       + "\"calton_engaged\":0..1,\"kind\":\"recommend\"|\"risk\"|\"better_option\"|\"next_step\"|\"fact\"|\"answer\"|\"fact_error\"|\"none\",\"say\":\"<≤12 words or SKIP>\",\"setting\":\"negotiation|sale|meeting|call|casual|family|street\",\"setting_conf\":0..1,"
       + "\"tone\":\"literal|joking|sarcastic\",\"their_mood\":\"<1-3 words or ''>\",\"partner_name\":\"<name if clearly said or ''>\",\"partner_name_conf\":0..1}\n"
@@ -178,15 +236,44 @@ public class Brain {
       + "Never correct a joke or sarcasm. Cues in [tags] (hesitant, louder, fast, long pause, talked over) are hints from mic sound, not facts; you can't see faces. Plain warm words, contractions, lead with the point.\n"
       + "[Me]=Calton, [Them]/[Partner]=the other person, [Other]=a different far voice, [Unsure]=unclear. Speech recognition may have errors.\n"
       + Guard.clock() + " " + Guard.RULES + "\n"
+      + "CRITICAL: Never bring up a subject, product, medication, person, or topic unless it was actually said in THIS session or is in the PRE-BRIEF below. If you have nothing relevant to THIS conversation, SKIP.\n"
       + "SETTING: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ". " + GUYANA_SHORT;
     if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\nPRE-BRIEF (start with this context): " + People.clip(s.prebrief, 300);
-    // 0.1.21: background and learned memory are low-weight – NEVER override the live conversation's actual topic
-    if (!background.isEmpty()) sys += "\nBACKGROUND (earlier session, probably unrelated – ignore unless the current conversation clearly returns to it): " + People.clip(background, 200);
+    // 0.1.22: declared context from owner's opening statement of intent
+    else if (!declaredContext.isEmpty()) sys += "\nDECLARED CONTEXT (what Calton said he's doing): " + People.clip(declaredContext, 300);
+    // 0.1.22: NO earlier-session background or learned topics in the prompt – only style hints
+    // Old topics caused the model to whisper about Mounjaro when Calton was going to a computer store
     if (!goal.isEmpty()) sys += "\nCALTON'S GOAL: " + goal + " – steer him toward it.";
-    if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(personCard, 400);
-    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nLow-priority background (style hints only, NOT the topic): " + People.clip(learned, 150);
-    String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far, split into topic chunks (oldest first, live speech recognition, may have errors). If the CURRENT chunk is on a different subject than the previous state, report the NEW topic:\n" + chunkedTranscript();
+    if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(stripTopicsFromCard(personCard), 400);
+    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nCalton's style (NOT topics): " + People.clip(stripTopics(learned), 100);
+    // 0.1.22: don't show "Previous state" with old topic – the model must derive topic from live transcript only
+    String u = "Conversation so far, split into topic chunks (oldest first, live speech recognition, may have errors). Derive the topic from what was ACTUALLY SAID:\n" + chunkedTranscript();
     return new JSONArray().put(Learn.msg("system", sys)).put(Learn.msg("user", u));
+  }
+  
+  // 0.1.22: strip topic-related content from learned notes, keeping only style preferences
+  static String stripTopics(String learned) {
+    if (learned == null || learned.isEmpty()) return "";
+    // Remove "recurring topics: ..." and similar topic listings
+    String s = learned.replaceAll("(?i)recurring topics?:?[^.;]*[.;]?", "")
+                      .replaceAll("(?i)topics?:?[^.;]*[.;]?", "")
+                      .replaceAll("(?i)\\b(Mounjaro|Ozempic|Zepbound|Wegovy|semaglutide|tirzepatide|GLP-1|medication|medical|health|doctor|network|networking|wifi|router|solar|inverter|battery|CCTV|camera)\\b[^.;]*[.;]?", "")
+                      .replaceAll("\\s+", " ").trim();
+    // If nothing useful remains, return empty
+    return s.length() < 10 ? "" : s;
+  }
+  
+  // 0.1.22: strip past conversation topics from person cards, keeping only relationship and name
+  static String stripTopicsFromCard(String card) {
+    if (card == null || card.isEmpty()) return "";
+    // Keep PERSON line but strip "Last time" sections which contain old topics
+    StringBuilder b = new StringBuilder();
+    for (String line : card.split("\n")) {
+      if (line.startsWith("Last time")) continue; // skip old conversation topics
+      if (line.contains("topic:")) continue; // skip topic references
+      b.append(line).append("\n");
+    }
+    return b.toString().trim();
   }
   /** Apply the model's state update and run the final coach gate. Returns text to whisper, or null. */
   String gate(JSONObject j, long now) {
@@ -204,11 +291,84 @@ public class Brain {
     // Keep: never correct a joke, never ask Calton questions
     if ("fact_error".equals(kind) && ("joking".equals(lastTone) || "sarcastic".equals(lastTone))) return null;
     if (isQuestionToCalton(say)) { WhisperService.log("(dropped a question: " + say + ")"); return null; }
+    // 0.1.22: off-thread topic guard – drop whispers that name topics not in this session or prebrief
+    String offThread = offThreadTopic(say); if (offThread != null) { WhisperService.log("(dropped: off-thread topic \"" + offThread + "\" – " + say + ")"); return null; }
     // 0.1.21: lowered confidence thresholds – let the model help even when unsure, it can SKIP if it has nothing
     double need = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind) ? 0.30 : 0.35;
     if (confidence < need) { WhisperService.log("(low confidence " + String.format(Locale.US, "%.2f", confidence) + " – letting it through anyway)"); }
     // 0.1.21: removed readiness gate and alignment gate – the model sees the full context and decides
     lastCoachAt = now; return say;
+  }
+  
+  // 0.1.22: old memory terms that triggered the off-thread guard (built dynamically per session)
+  volatile Set<String> oldMemoryTerms = new HashSet<>();
+  volatile Set<String> relevantOldTerms = new HashSet<>(); // terms from old memory that ARE relevant to declared context
+  
+  /** Call at session start to extract topic terms from old memory sources (learned note, person card, background).
+   * Terms are scored for relevance against declared context; irrelevant ones are blocked from whispers. */
+  void buildOldMemoryTerms(Context c) {
+    Set<String> allTerms = new HashSet<>();
+    // Extract from learned note
+    String learned = Prefs.s(c, "learned", "");
+    if (!learned.isEmpty()) allTerms.addAll(extractTopicTerms(learned));
+    // Extract from person card (includes past conversation topics)
+    if (!personCard.isEmpty()) allTerms.addAll(extractTopicTerms(personCard));
+    // Extract from background (earlier session summary) – though we no longer inject it, belt-and-suspenders
+    if (!background.isEmpty()) allTerms.addAll(extractTopicTerms(background));
+    
+    // 0.1.22: score relevance against declared context + prebrief
+    Set<String> contextTerms = new HashSet<>();
+    if (!declaredContext.isEmpty()) contextTerms.addAll(extractTopicTerms(declaredContext));
+    if (hasBrief && !topic.isEmpty()) contextTerms.addAll(extractTopicTerms(topic));
+    
+    // Split: relevant terms pass through, irrelevant ones are guarded
+    Set<String> relevant = new HashSet<>();
+    Set<String> irrelevant = new HashSet<>();
+    for (String term : allTerms) {
+      if (contextTerms.contains(term)) {
+        relevant.add(term);
+      } else {
+        irrelevant.add(term);
+      }
+    }
+    relevantOldTerms = relevant;
+    oldMemoryTerms = irrelevant; // only guard irrelevant terms
+    if (!irrelevant.isEmpty()) WhisperService.log("(old-memory terms to guard: " + irrelevant.size() + ", relevant: " + relevant.size() + ")");
+  }
+  
+  /** Extract meaningful topic terms from old memory text (words 4+ chars, not stopwords). */
+  static Set<String> extractTopicTerms(String text) {
+    Set<String> terms = new HashSet<>();
+    if (text == null || text.isEmpty()) return terms;
+    for (String w : text.toLowerCase(Locale.US).replaceAll("[^a-z0-9' ]", " ").split("\\s+")) {
+      if (w.length() >= 4 && !STOP.contains(w) && !CHUNK_STOP.contains(w)) terms.add(stem(w));
+    }
+    return terms;
+  }
+  
+  /** Returns the off-thread term found in say, or null if the whisper is on-topic.
+   * Only blocks terms that came from OLD memory AND are not in this session's transcript/briefing/declared context. */
+  synchronized String offThreadTopic(String say) {
+    if (say == null || say.isEmpty() || oldMemoryTerms.isEmpty()) return null;
+    Set<String> sayStems = stems(kws(say.toLowerCase(Locale.US)));
+    // Build vocabulary from this session's transcript + briefing + declared context
+    Set<String> sessionVocab = new HashSet<>();
+    for (String line : window) {
+      int i = line.indexOf("] ");
+      if (i > 0) sessionVocab.addAll(stems(kws(line.substring(i + 2).toLowerCase(Locale.US))));
+    }
+    for (Chunk c : chunks) sessionVocab.addAll(stems(c.kw));
+    if (!topic.isEmpty()) sessionVocab.addAll(stems(kws(topic.toLowerCase(Locale.US))));
+    if (!declaredContext.isEmpty()) sessionVocab.addAll(stems(kws(declaredContext.toLowerCase(Locale.US))));
+    // Relevant old terms also pass
+    sessionVocab.addAll(relevantOldTerms);
+    // Check if whisper uses an old-memory term that wasn't said in this session
+    for (String sayStem : sayStems) {
+      if (oldMemoryTerms.contains(sayStem) && !sessionVocab.contains(sayStem)) {
+        return sayStem; // This term came from old memory and wasn't said yet
+      }
+    }
+    return null;
   }
   // ================= 0.1.18 =================
   static final double RESTORED_W = 0.5; static final int READY = 55, URGENT_READY = 35, PRE_READY = 30; static final long LABEL_MS = 15 * 60_000L, DRIFT_DECAY_MS = 5 * 60_000L, DRIFT_DROP_MS = 10 * 60_000L;

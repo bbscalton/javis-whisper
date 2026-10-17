@@ -19,10 +19,11 @@ public class Learn {
     b.append("Only speak when it genuinely helps. Give suggestions, answers or facts – never ask Calton a question back. If nothing useful to add, reply with exactly: SKIP\n\n");
     b.append(MODES.containsKey(mode) ? MODES.get(mode) : MODES.get("coach")).append("\n\n");
     b.append("Lines are live speech recognition and may contain errors; infer what was meant. [Me] = Calton, [Them] = the other person, [Speaker] = unknown. Never repeat what was just said.\n\n");
+    b.append("CRITICAL: Never bring up a subject, product, medication, person, or topic unless it was actually said in THIS session or is in the PRE-BRIEF. If you have nothing relevant to THIS conversation, SKIP.\n\n");
     if (s.prebrief != null && !s.prebrief.isEmpty()) b.append("PRE-BRIEF (who/topic): ").append(s.prebrief).append("\n\n");
-    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) b.append("What helps Calton (learned from past sessions): ").append(learned).append("\n\n");
-    List<Db.Session> past = Db.get(c).d().summaries(s.id, Integer.parseInt(Prefs.s(c, "learn_n", "8")));
-    if (!past.isEmpty()) { b.append("Recent sessions:\n"); SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd", Locale.US); for (Db.Session p : past) b.append("- ").append(f.format(new Date(p.started))).append(' ').append(p.mode).append(": ").append(p.summary).append('\n'); }
+    // 0.1.22: only include style preferences from learned note, NOT topics (those caused off-thread injection)
+    String learned = Prefs.s(c, "learned", ""); String style = Brain.stripTopics(learned); if (!style.isEmpty()) b.append("Calton's preferred style: ").append(style).append("\n\n");
+    // 0.1.22: removed past session summaries – they injected old topics into new conversations
     return b.toString().trim();
   }
   static void endSession(Context c, Xai x, String model, Db.Session s) throws Exception {
