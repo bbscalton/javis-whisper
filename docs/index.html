@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.19/JavisWhisper.apk">⬇ Download 0.1.19</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.20/JavisWhisper.apk">⬇ Download 0.1.20</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,8 +83,13 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.19 – works without earbuds</h3>The other person is no longer mistaken for you, short replies count, and javis now coaches when you're using just the phone. Your enrolled voice shows as remembered at start.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.19/JavisWhisper.apk">⬇ Download 0.1.19</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.20 – solo study coaching works</h3>Fixed the false "talking over each other" blocking that stopped all coaching in solo study sessions (voice lock on, just you). TTS-induced overlap is now ignored, and single-owner lock mode bypasses the overlap gate.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.20/JavisWhisper.apk">⬇ Download 0.1.20</a></div>
 </div></section>
+<div id="v0120"><section><h2>What's new in 0.1.20</h2><ul>
+<li><b>Solo study coaching works.</b> When voice lock is on and only you are tracked, javis no longer falsely thinks "people are talking over each other". In earlier versions, javis's own TTS voice and mic artifacts triggered the overlap detector even in a one-person study session, blocking every coaching response at high readiness (87%+).</li>
+<li><b>TTS echo overlap ignored.</b> If an utterance overlaps javis's own speech, that overlap is now ignored rather than blocking the coach. This fixes the false positives caused by the earbud's audio feeding back through the phone mic.</li>
+<li><b>No reset needed.</b> Installs over 0.1.19; your enrolled voice and history carry over.</li>
+</ul></section></div>
 <div id="v0119"><section><h2>What's new in 0.1.19</h2><ul>
 <li><b>The other person isn't you.</b> A voice clearly higher or lower than yours (more than about 25%) is never filed as you, and a line already heard as the other person is never pulled into your tag.</li>
 <li><b>Phone only, no earbuds.</b> javis now says “phone only” at start, tells voices apart mainly by pitch, and no longer thinks everyone is talking over each other. In the 16 Oct test that false flag was holding coaching back.</li>

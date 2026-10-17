@@ -49,6 +49,7 @@ public class Brain {
   // ---- 0.1.6 prosody: each speaker's own baseline, so cues are RELATIVE ("louder than he usually is"), never absolute guesses ----
   final Map<String, double[]> base = new HashMap<>(); // tag -> pitch, loudDb, rate(words/s), n
   volatile long overlapAt; long lastMeEnd;
+  volatile boolean singleOwnerLock; // true when voice-lock is on and only the owner is tracked – overlap is meaningless
   String prosody(String who, String text, Proximity.Feat f) {
     List<String> r = new ArrayList<>(); int words = text.trim().split("\\s+").length; double rate = f.voicedSec > 0.6 ? words / f.voicedSec : 0;
     double[] b = base.get(who);
@@ -154,7 +155,8 @@ public class Brain {
     if (calTalking) return "Calton is talking";
     if (!meSeen) return "voice not learned yet – waiting to hear Calton first";
     if (monologue) return "one voice talking on with no reply from Calton (video or speech) – background";
-    if (now - overlapAt < 3000) return "people are talking over each other – waiting";
+    // 0.1.20: with voice-lock on and only the owner tracked, "talking over" is a false positive (there is no second person)
+    if (now - overlapAt < 3000 && !singleOwnerLock) return "people are talking over each other – waiting";
     if ("Me".equals(lastSpk) || lastSpk.isEmpty()) return "last turn was Calton"; // 0.1.19: Them and Unsure lines both open the coach
     // 0.1.7: with only one far voice (no partner linked yet), one exchange with Calton is enough – or a pre-brief says he's in a conversation
     boolean oneVoiceExchange = partner == null && lastMeAt > 0 && (now - lastMeAt < 60_000 || (hasBrief && now - lastMeAt < 180_000));
