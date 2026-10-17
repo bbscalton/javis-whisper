@@ -424,9 +424,9 @@ public class WhisperService extends Service {
         if (people.cur != null) people.learnVoice(fv); else { Db.Person h = people.voiceHint(fv); if (h != null) log("(voice sounds like " + h.name + " – waiting for the name to confirm)"); } }
       if ("Unsure".equals(spk)) brain.unsure++;
       if ("translate".equals(mode)) { if (!english && !"Me".equals(spk)) whisper(u, tText, text); return; }
-      // 0.1.9: Street goes through the same listen-first gate as Coach (street setting: quick, but one whisper per real question)
-      // ---- coach: listen first; decide only at a natural pause after the other person finishes ----
-      if (!"Me".equals(spk)) { ScheduledFuture<?> pc = pendingCoach; // 0.1.19: any non-Me line (Them / Unsure / short replies) if (pc != null) pc.cancel(false);
+      // 0.1.21: coach considers EVERY turn – the model decides what's worth saying, not speaker filtering
+      // In real conversations Calton may ask a question, make a statement, or need help after his own turn
+      { ScheduledFuture<?> pc = pendingCoach; if (pc != null) pc.cancel(false);
         pendingCoach = sched.schedule(() -> proc.execute(this::coachDecide), brain.pauseMs(), TimeUnit.MILLISECONDS); }
     } catch (Throwable e) { status = "Listening"; log("Pipeline error: " + e.getMessage()); }
   }

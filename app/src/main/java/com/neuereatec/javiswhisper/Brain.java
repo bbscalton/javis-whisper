@@ -150,23 +150,18 @@ public class Brain {
     for (int i = Math.max(0, n - 4); i < n - 1; i++) { Chunk c = chunks.get(i); b.append("— earlier chunk ").append(i - n + 1).append(c.topic.isEmpty() ? "" : " (topic: " + c.topic + ")").append(" —\n").append(String.join("\n", c.lines.subList(Math.max(0, c.lines.size() - 3), c.lines.size()))).append("\n"); }
     Chunk cur = chunks.get(n - 1); b.append("— CURRENT chunk (judge the topic from this; opened by: ").append(cur.why).append(") —\n").append(String.join("\n", cur.lines)); return b.toString(); }
   synchronized void resetCtx() { restored.clear(); topicKw.clear(); label = ""; labelAt = 0; lastOnTopicAt = 0; chunks.clear(); lastLineWall = 0; lowOverlapRun = 0; sinceShift = 1000; lastHeardAt = 0; ovl.clear(); window.clear(); speakerTurns = 0; turnsSinceTopic = 0; topic = ""; confidence = 0; openQuestion = ""; lastSpk = ""; }
-  /** Cheap pre-gate before spending an LLM call. */
+  /** 0.1.21: Minimal pre-gate – only block on active collision or hard limits.
+   * The model decides what's worth saying; detection lowers confidence, never blocks comprehension.
+   * Removed: "last turn was Calton", engagement checks, partner checks, readiness threshold.
+   * A version that sometimes gets things wrong beats one that does nothing. */
   String preGate(long now, boolean calTalking) {
     if (calTalking) return "Calton is talking";
-    if (!meSeen) return "voice not learned yet – waiting to hear Calton first";
-    if (monologue) return "one voice talking on with no reply from Calton (video or speech) – background";
-    // 0.1.20: with voice-lock on and only the owner tracked, "talking over" is a false positive (there is no second person)
-    if (now - overlapAt < 3000 && !singleOwnerLock) return "people are talking over each other – waiting";
-    if ("Me".equals(lastSpk) || lastSpk.isEmpty()) return "last turn was Calton"; // 0.1.19: Them and Unsure lines both open the coach
-    // 0.1.7: with only one far voice (no partner linked yet), one exchange with Calton is enough – or a pre-brief says he's in a conversation
-    boolean oneVoiceExchange = partner == null && lastMeAt > 0 && (now - lastMeAt < 60_000 || (hasBrief && now - lastMeAt < 180_000));
-    if (!engaged(now) && !oneVoiceExchange) return "background – Calton hasn't spoken with this voice yet";
-    if (!lastThemPartner) return "a different far voice (not his partner) – waiting it out";
+    // 0.1.21: only block on LIVE collision (someone speaking right now), not past overlap
+    if (now - overlapAt < 1500 && !singleOwnerLock) return "voices overlapping right now – waiting";
     int k = si(settingNow());
     if (now - lastCoachAt < COOLDOWN[k] * 1000L) return "cooldown (" + settingNow() + ")";
-    boolean enough = speakerTurns >= MIN_TURNS[k] || window.size() >= MIN_TURNS[k];
-    if (!enough) return "still listening (" + window.size() + " turns)";
-    int rd = readiness(); if (rd < PRE_READY) return "building context (" + rd + "%)"; // 0.1.18: don't spend a Grok call on almost no context
+    // 0.1.21: removed meSeen, monologue, lastSpk, engaged, lastThemPartner, MIN_TURNS, PRE_READY gates
+    // These become advisory context for the model, not blocking conditions
     return null;
   }
   JSONArray assessMessages(Context c, Db.Session s) throws JSONException {
@@ -185,10 +180,11 @@ public class Brain {
       + Guard.clock() + " " + Guard.RULES + "\n"
       + "SETTING: " + settingNow() + " – focus on " + FOCUS[si(settingNow())] + ". " + GUYANA_SHORT;
     if (s.prebrief != null && !s.prebrief.isEmpty()) sys += "\nPRE-BRIEF (start with this context): " + People.clip(s.prebrief, 300);
-    if (!background.isEmpty()) sys += "\nBACKGROUND (an earlier session – may be unrelated, never assume it's the current topic): " + People.clip(background, 300);
+    // 0.1.21: background and learned memory are low-weight – NEVER override the live conversation's actual topic
+    if (!background.isEmpty()) sys += "\nBACKGROUND (earlier session, probably unrelated – ignore unless the current conversation clearly returns to it): " + People.clip(background, 200);
     if (!goal.isEmpty()) sys += "\nCALTON'S GOAL: " + goal + " – steer him toward it.";
     if (!personCard.isEmpty()) sys += "\nTALKING WITH: " + People.clip(personCard, 400);
-    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nWhat helps Calton: " + People.clip(learned, 250);
+    String learned = Prefs.s(c, "learned", ""); if (!learned.isEmpty()) sys += "\nLow-priority background (style hints only, NOT the topic): " + People.clip(learned, 150);
     String u = "Previous state: topic=\"" + topic + "\" confidence=" + String.format(Locale.US, "%.2f", confidence) + " open_question=\"" + openQuestion + "\"\n\nConversation so far, split into topic chunks (oldest first, live speech recognition, may have errors). If the CURRENT chunk is on a different subject than the previous state, report the NEW topic:\n" + chunkedTranscript();
     return new JSONArray().put(Learn.msg("system", sys)).put(Learn.msg("user", u));
   }
@@ -202,18 +198,16 @@ public class Brain {
     boolean shifted = !similar(newTopic, topic); topic = newTopic; double mc = j.optDouble("confidence", 0); confidence = shifted ? mc : Math.max(mc, confidence * 0.9); // 0.1.18: keep locally earned confidence on the same topic
     synchronized (this) { if (shifted || topicKw.isEmpty()) { topicKw.clear(); topicKw.addAll(stems(kws(newTopic))); if (!chunks.isEmpty()) topicKw.addAll(stems(chunks.get(chunks.size() - 1).kw)); } lastOnTopicAt = now; }
     synchronized (this) { if (!chunks.isEmpty()) chunks.get(chunks.size() - 1).topic = newTopic; } try { WhisperService.readiness = readiness(); } catch (Throwable ignored) {} openQuestion = j.optString("open_question", ""); changed();
-    if (j.optDouble("calton_engaged", 1) < 0.25) return null;   // model thinks he isn't really in this conversation
+    // 0.1.21: trust the model's decision more – it said SKIP when it has nothing useful
     String say = j.optString("say", "SKIP").trim(), kind = j.optString("kind", "none");
     if (say.isEmpty() || say.toUpperCase(Locale.US).startsWith("SKIP") || "none".equals(kind)) return null;
-    // 0.1.7: the pause timer already waits for them to finish; mid_topic only holds back weak (low-confidence) suggestions
-    if (j.optBoolean("mid_topic", false) && confidence < 0.6 && !"fact_error".equals(kind) && !"risk".equals(kind)) return null;
-    if ("fact_error".equals(kind) && ("joking".equals(lastTone) || "sarcastic".equals(lastTone))) return null; // never correct a joke      // never interrupt a point being made
+    // Keep: never correct a joke, never ask Calton questions
+    if ("fact_error".equals(kind) && ("joking".equals(lastTone) || "sarcastic".equals(lastTone))) return null;
     if (isQuestionToCalton(say)) { WhisperService.log("(dropped a question: " + say + ")"); return null; }
-    double need = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind) ? 0.45 : VALUE_CONF[si(settingNow())];    // value-adds need the most certainty
-    if (confidence < need) return null;
-    boolean urgent = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind);
-    int rd = readiness(); if (rd < (urgent ? URGENT_READY : READY)) { WhisperService.log("(held: context " + rd + "% – needs " + (urgent ? URGENT_READY : READY) + "%)"); return null; } // 0.1.18 readiness gate
-    if (!"answer".equals(kind) && !aligned(lastThemText)) { WhisperService.log("(held: what they said doesn't match the topic – " + topic + ")"); return null; } // 0.1.18 alignment gate
+    // 0.1.21: lowered confidence thresholds – let the model help even when unsure, it can SKIP if it has nothing
+    double need = "fact_error".equals(kind) || "answer".equals(kind) || "risk".equals(kind) ? 0.30 : 0.35;
+    if (confidence < need) { WhisperService.log("(low confidence " + String.format(Locale.US, "%.2f", confidence) + " – letting it through anyway)"); }
+    // 0.1.21: removed readiness gate and alignment gate – the model sees the full context and decides
     lastCoachAt = now; return say;
   }
   // ================= 0.1.18 =================
