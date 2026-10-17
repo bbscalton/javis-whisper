@@ -58,6 +58,8 @@ public class WhisperService extends Service {
   static Set<String> lockAllowed(Context c) { Set<String> all = new LinkedHashSet<>(); if (VoiceEnroll.has(c)) all.add(VoiceEnroll.owner(c)); all.addAll(VoiceEnroll.voices(c).keySet());
     String p = Prefs.s(c, "lock_allow", ""); if (p.isEmpty()) return all; Set<String> s = new LinkedHashSet<>(); for (String n : p.split(";")) if (all.contains(n)) s.add(n); return s; }
   static boolean lockActive(Context c) { return "1".equals(Prefs.s(c, "lock", "0")) && !lockAllowed(c).isEmpty(); }
+  /** 0.1.20: true when voice-lock is on and only the owner is in the lock list – "overlap" is meaningless in this case. */
+  static boolean isSingleOwnerLock(Context c) { if (!lockActive(c)) return false; Set<String> allowed = lockAllowed(c); return allowed.size() == 1 && allowed.contains(VoiceEnroll.owner(c)); }
   // 0.1.14 natural-speech enrollment + continuity
   volatile int natLeft; volatile double natF0; volatile long natUntil, lastMeWall; volatile double lastMeF0;
   public static volatile boolean readyNoisy; public static volatile int readiness; public static volatile String readyWhy = ""; // 0.1.15 meter
@@ -132,6 +134,7 @@ public class WhisperService extends Service {
       proc.execute(() -> { long t0 = SystemClock.uptimeMillis(); try { xai.chat(model, new JSONArray().put(Learn.msg("user", "ok")), 1, 0, null); log("(warm-up: Grok link ready in " + (SystemClock.uptimeMillis() - t0) + " ms)"); } catch (Throwable t) { log("(warm-up failed: " + t.getMessage() + ")"); } });
       // 0.1.12: restore Calton's saved voice identity – no need to re-identify each launch
       ownerKnown = VoiceEnroll.has(this); meMatchAt = 0; curSpeaker = null; curAt = 0; diar = new Diar(this); if (VoiceEnroll.has(this)) diar.owner = VoiceEnroll.owner(this); curLabel = null; curCl = null; quality = -1; qShort = qLong = -1; qTrend = ""; qWhy = "";
+      brain.singleOwnerLock = isSingleOwnerLock(this); // 0.1.20: overlap blocking disabled in single-owner lock mode
       if ("1".equals(Prefs.s(this, "lock", "0"))) log(lockActive(this) ? "🔒 Lock on – only tracking: " + String.join(", ", lockAllowed(this)) : "🔒 Lock is on but no enrolled voice is selected – listening to everyone for now"); if (ownerKnown) { brain.meSeen = true; log("✔ Voice remembered – no mic test needed. Re-enroll in Settings anytime."); }
       final String pb = prebrief; // the real brief only (inferred context below never creates people)
       // 0.1.12 optional briefing: no pre-brief → carry context from a recent session (last 6 h) if there is one
@@ -355,6 +358,8 @@ public class WhisperService extends Service {
       double near = Proximity.nearScore(this, pf, clip); clip = null;
       Proximity.noEarbud = !scoActive(); final double of0s = Proximity.ownerF0(this);
       if (pf.overlap && !Classify.overlapBelievable(Proximity.noEarbud, them != null)) pf.overlap = false; // 0.1.19: phone-only "talked over" is not believable
+      // 0.1.20: TTS-induced overlap is not believable – javis's own voice through the earbud creates mic artifacts
+      if (pf.overlap && u.duringTts) { pf.overlap = false; log("(overlap during TTS – ignored as javis echo)"); }
       String band0 = Proximity.band(this, near); String spk = forceMe ? "Me" : Classify.refine(band0, pf.pitch, of0s, Proximity.noEarbud); // 0.1.19 pitch check (leads with no earbuds)
       if (!forceMe && !spk.equals(band0)) log(String.format(Locale.US, "(voice by pitch: %s → %s · f0 %.0f vs yours %.0f)", band0, spk, pf.pitch, of0s));
       // 0.1.14 continuity: an unsure turn within 5 s of a confident Me turn with pitch within ±15% is still Calton
@@ -376,6 +381,7 @@ public class WhisperService extends Service {
         String uc = Guard.unclear(text); double stab = text.trim().split("\\s+").length >= 3 && uc == null ? 1 : uc == null ? 0.6 : 0.2;
         qNote(pf.overlap, conf, diar == null ? 0.5 : diar.lastMargin, stab); } catch (Throwable ignored) {}
       // 0.1.13 Lock: with ≥2 enrolled voices (owner + 1 other), unrecognised speech is discarded – not saved, not shown, not sent to Grok
+      brain.singleOwnerLock = isSingleOwnerLock(this); // 0.1.20: refresh in case settings changed mid-session
       if (lockActive(this) && (curSpeaker == null || !lockAllowed(this).contains(curSpeaker))) { log("(🔒 Lock: ignored " + (curSpeaker == null ? "an unrecognised voice" : curSpeaker + " – not in the lock list") + ")"); curSpeaker = null; return; }
       if ("Me".equals(spk)) { brain.meSeen = true; ownerKnown = true; matchName = VoiceEnroll.owner(this); meMatchAt = System.currentTimeMillis(); lastMeWall = meMatchAt; if (pf.pitch > 0 && Classify.pitchWithin(pf.pitch, of0s, Classify.CLASS_TOL)) lastMeF0 = pf.pitch; guard.calton(); } else if ("Them".equals(spk)) guard.far(nowW, text);
       brain.monologue = guard.monologue(nowW);
