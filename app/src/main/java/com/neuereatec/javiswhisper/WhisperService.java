@@ -159,8 +159,10 @@ public class WhisperService extends Service {
         readiness = brain.readiness();
       } catch (Throwable t) { log("(resume: " + t.getMessage() + ")"); }
       brain.onState = () -> ctxDirty = true;
+      // 0.1.22: build the old-memory term set for off-thread guarding (must be after personCard is set)
+      brain.buildOldMemoryTerms(this);
       if (!backfill.isEmpty()) proc.execute(() -> { for (Db.Session ps : backfill) try { long lt = db.d().lastTs(ps.id); if (lt == 0) continue; ps.ended = lt; db.d().update(ps); Learn.endSession(this, xai, model, ps); log("(wrote the missing summary of an interrupted session)"); } catch (Throwable t) { log("(summary backfill: " + t.getMessage() + ")"); } });
-      proc.execute(() -> { if (!pb.isEmpty()) people.fromPrebrief(xai, model, pb); brain.goal = people.goal; brain.personCard = people.card; });
+      proc.execute(() -> { if (!pb.isEmpty()) people.fromPrebrief(xai, model, pb); brain.goal = people.goal; brain.personCard = people.card; brain.buildOldMemoryTerms(WhisperService.this); }); // rebuild after prebrief sets personCard
       startBt(); Proximity.noEarbud = !scoActive(); // 0.1.19: label from the real route
       log("Session started · " + mode + (prebrief.isEmpty() ? "" : " · pre-brief set") + " · " + (Proximity.noEarbud ? "phone only (no earbuds) – speakers told apart mainly by pitch" : dual ? "earbud + phone mic" : "earbud only") + " · " + model + " · voice " + Prefs.s(this, "voice_id", "ara"));
       int min = AudioTrack.getMinBufferSize(SR, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);

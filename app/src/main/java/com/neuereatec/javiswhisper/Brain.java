@@ -241,36 +241,51 @@ public class Brain {
     lastCoachAt = now; return say;
   }
   
-  // 0.1.22: known topic terms that should NOT appear unless actually in this session
-  static final Set<String> OFF_THREAD_TERMS = new HashSet<>(Arrays.asList(
-    "mounjaro", "ozempic", "zepbound", "wegovy", "semaglutide", "tirzepatide", "glp-1", "glp1",
-    "insulin", "cortisone", "medication", "prescription", "dosage", "injection", "pen",
-    "diet", "weight loss", "side effect", "nausea"
-  ));
+  // 0.1.22: old memory terms that triggered the off-thread guard (built dynamically per session)
+  volatile Set<String> oldMemoryTerms = new HashSet<>();
   
-  /** Returns the off-thread term found in say, or null if the whisper is on-topic. */
+  /** Call at session start to extract topic terms from old memory sources (learned note, person card, background).
+   * These terms will be blocked from whispers unless they appear in this session's live transcript or briefing. */
+  void buildOldMemoryTerms(Context c) {
+    Set<String> terms = new HashSet<>();
+    // Extract from learned note
+    String learned = Prefs.s(c, "learned", "");
+    if (!learned.isEmpty()) terms.addAll(extractTopicTerms(learned));
+    // Extract from person card (includes past conversation topics)
+    if (!personCard.isEmpty()) terms.addAll(extractTopicTerms(personCard));
+    // Extract from background (earlier session summary) – though we no longer inject it, belt-and-suspenders
+    if (!background.isEmpty()) terms.addAll(extractTopicTerms(background));
+    oldMemoryTerms = terms;
+    if (!terms.isEmpty()) WhisperService.log("(old-memory terms to guard: " + terms.size() + " words)");
+  }
+  
+  /** Extract meaningful topic terms from old memory text (words 4+ chars, not stopwords). */
+  static Set<String> extractTopicTerms(String text) {
+    Set<String> terms = new HashSet<>();
+    if (text == null || text.isEmpty()) return terms;
+    for (String w : text.toLowerCase(Locale.US).replaceAll("[^a-z0-9' ]", " ").split("\\s+")) {
+      if (w.length() >= 4 && !STOP.contains(w) && !CHUNK_STOP.contains(w)) terms.add(stem(w));
+    }
+    return terms;
+  }
+  
+  /** Returns the off-thread term found in say, or null if the whisper is on-topic.
+   * Only blocks terms that came from OLD memory AND are not in this session's transcript/briefing. */
   synchronized String offThreadTopic(String say) {
-    if (say == null || say.isEmpty()) return null;
-    Set<String> sayWords = kws(say.toLowerCase(Locale.US));
-    // Build vocabulary from this session's transcript + prebrief
+    if (say == null || say.isEmpty() || oldMemoryTerms.isEmpty()) return null;
+    Set<String> sayStems = stems(kws(say.toLowerCase(Locale.US)));
+    // Build vocabulary from this session's transcript + briefing
     Set<String> sessionVocab = new HashSet<>();
     for (String line : window) {
       int i = line.indexOf("] ");
-      if (i > 0) sessionVocab.addAll(kws(line.substring(i + 2).toLowerCase(Locale.US)));
+      if (i > 0) sessionVocab.addAll(stems(kws(line.substring(i + 2).toLowerCase(Locale.US))));
     }
-    for (Chunk c : chunks) sessionVocab.addAll(c.kw);
-    // prebrief is stored in hasBrief / topic at start – we check current topic too
-    if (!topic.isEmpty()) sessionVocab.addAll(kws(topic.toLowerCase(Locale.US)));
-    // Check if say contains a known off-thread term that's NOT in session
-    for (String term : OFF_THREAD_TERMS) {
-      String stem = stem(term);
-      for (String w : sayWords) {
-        if (w.equals(term) || stem(w).equals(stem)) {
-          // Is this term in the session?
-          boolean inSession = false;
-          for (String sv : sessionVocab) if (sv.equals(term) || stem(sv).equals(stem)) { inSession = true; break; }
-          if (!inSession) return term;
-        }
+    for (Chunk c : chunks) sessionVocab.addAll(stems(c.kw));
+    if (!topic.isEmpty()) sessionVocab.addAll(stems(kws(topic.toLowerCase(Locale.US))));
+    // Check if whisper uses an old-memory term that wasn't said in this session
+    for (String sayStem : sayStems) {
+      if (oldMemoryTerms.contains(sayStem) && !sessionVocab.contains(sayStem)) {
+        return sayStem; // This term came from old memory and wasn't said yet
       }
     }
     return null;
