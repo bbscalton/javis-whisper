@@ -44,7 +44,7 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <header><div class="hero"><div class="txt"><div class="small">NEUEREATEC LABS · PROTOTYPE</div><h1>Javis Whisper</h1>
 <p class="lead"><b>A friend in your ear.</b> javis stands next to you, listens to the whole conversation, and only leans in when it has something worth saying – a wrong fact, an answer you need, the right words at the right moment. Only you hear it.</p>
 <div class="caps" aria-label="Example whispers"><span>“He means Friday, not Monday.”</span><span>“Ask about the warranty.”</span><span>“She asked the price – say: ¿Son quinientos dólares?”</span><span>“That’s Canberra, not Sydney.”</span></div>
-<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.23/JavisWhisper.apk">⬇ Download 0.1.23</a>
+<a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.24/JavisWhisper.apk">⬇ Download 0.1.24</a>
 <p class="small">Android 9+ · tested target: Samsung Galaxy (Android 16) + Soulmate46 earbuds · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper/releases/latest">latest release</a></p></div>
 <div class="art"><img src="img/hero.svg" alt="Illustration: a person wearing a glowing earbud, surrounded by conversation bubbles" width="300" height="286"></div></div></header>
 <main>
@@ -83,11 +83,17 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <div><img src="img/street.svg" alt="Figure with earbud on a street" width="320" height="200"><b>Street mode</b><br><span class="small">Calm, one tip at a time, never while someone is talking.</span></div>
 <div><img src="img/privacy.svg" alt="Shield with a lock" width="320" height="200"><b>Private</b><br><span class="small">Conversations are never recorded; your voice sample never leaves your phone.</span></div></div></section>
 <section><h2>Current version</h2><div class="vers">
-<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.23 – Advisor: say “Jarvis”</h3>javis now waits silently. Say the wake word (“Jarvis”, or your own word in Settings) and it whispers one short piece of advice about the last few seconds of conversation – a tactic, a privacy warning, what to ask or what to avoid – then goes quiet again. The wake word is detected on the phone; audio stays in memory only and is wiped after each use.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.23/JavisWhisper.apk">⬇ Download 0.1.23</a></div>
+<div class="ver now"><span class="pill new">Available (untested on phone) · newest</span><h3>0.1.24 – Wake phrase: say “right cool”</h3>The wake phrase is now “right cool”, said together as one phrase. “right” or “cool” on their own, “all right, cool”, “right school” and other sound-alikes are rejected, so ordinary talk doesn’t set it off. Phones that already had the app switch to “right cool” automatically; a custom word you picked yourself stays.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.24/JavisWhisper.apk">⬇ Download 0.1.24</a></div>
+<div class="ver"><h3>0.1.23 – Advisor mode</h3>javis waits silently. Say the wake phrase (or your own word in Settings) and it whispers one short piece of advice about the last few seconds of conversation – a tactic, a privacy warning, what to ask or what to avoid – then goes quiet again. The wake phrase is detected on the phone; audio stays in memory only and is wiped after each use.</div>
 <div class="ver"><h3>0.1.22 – declared context + mic filter</h3>Fixed off-thread topic injection with declared context detection and mic overhearing filter. javis now auto-detects your intent from your opening statement ("I'm going to a computer store") and scores all old memory for relevance. Room audio no longer contaminates topics.<br><a class="btn" href="https://github.com/bbscalton/javis-whisper/releases/download/v0.1.22/JavisWhisper.apk">⬇ Download 0.1.22</a></div>
 </div></section>
+<div id="v0124"><section><h2>What's new in 0.1.24</h2><ul>
+<li><b>Say “right cool”.</b> That is the only built-in wake phrase now. Both words have to come straight after each other – a single “right” or “cool”, or words in between, do nothing.</li>
+<li><b>Fewer false alarms.</b> Sound-alikes like “all right”, “right school” and “white cool” are rejected.</li>
+<li><b>Automatic switch.</b> Existing installs move to “right cool” on the next start. Everything else (advice, silence, memory-only audio) works as in 0.1.23.</li>
+</ul></section></div>
 <div id="v0123"><section><h2>What's new in 0.1.23</h2><ul>
-<li><b>Advisor mode (new default).</b> javis listens in the background but says nothing until you say the wake word – “Jarvis” by default, or a word you choose in Settings. Coach, Translate and Street are still one tap away.</li>
+<li><b>Advisor mode (new default).</b> javis listens in the background but says nothing until you say the wake phrase – “right cool” (since 0.1.24), or a word you choose in Settings. Coach, Translate and Street are still one tap away.</li>
 <li><b>On-device wake word.</b> An offline recogniser (Vosk) runs on the phone with a strict confidence threshold, sound-alike filtering and a cooldown, so normal talk around you doesn't set it off. Nothing goes to the cloud until you say the word.</li>
 <li><b>Hears what just happened.</b> The last ~10 seconds before the wake word sit in a memory-only buffer, plus up to 4 seconds after it (or until you stop talking). That audio is sent once to speech-to-text and then wiped. It is never written to storage.</li>
 <li><b>One short whisper, then silence.</b> 2–3 casual sentences in Ara's voice, with no greetings and no questions back. The app trims longer replies and removes questions in code. The wake word is muted while javis speaks, so its own voice can't retrigger it.</li>
@@ -188,4 +194,4 @@ details{background:#0e2546;border-radius:12px;padding:10px 14px;margin:8px 0}sum
 <li><b>No invented people.</b> A new person is only saved when they clearly introduce themselves; mic tests never create people or learned notes.</li>
 <li><b>Mic tests stay quiet.</b> Test phrases are not coached, and session summaries only say what actually happened.</li>
 <li>More drug-name fixes from real samples. Clears the 15 Oct test leftovers (“Justina Evans”, echo-cycle note) once after update.</li></ul></section></div>
-</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.23 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>
+</main><footer>© 2026 Neuereatec · Javis Whisper prototype v0.1.24 · <a style="color:#9cf" href="https://github.com/bbscalton/javis-whisper">source</a></footer></body></html>

@@ -8,8 +8,8 @@ import java.util.*;
  * and only coaches through a gate. Direct commands ("Whisper, …") take a separate fast path.
  */
 public class Brain {
-  // ---- wake word: must be at the START of the utterance; STT variants of Javis/Jarvis/Whisper included ----
-  static final java.util.regex.Pattern WAKE = java.util.regex.Pattern.compile("^\\s*(?:hey|ok|okay|yo)?[\\s,]*(whisper|whispers|javis|jarvis|javi|travis|jervis)\\b[\\s,.!?:;-]*(.*)$", java.util.regex.Pattern.CASE_INSENSITIVE);
+  // ---- wake word: must be at the START of the utterance; STT variants of Javis/Whisper (app name, coach mode only) included ----
+  static final java.util.regex.Pattern WAKE = java.util.regex.Pattern.compile("^\\s*(?:hey|ok|okay|yo)?[\\s,]*(whisper|whispers|javis|javi)\\b[\\s,.!?:;-]*(.*)$", java.util.regex.Pattern.CASE_INSENSITIVE);
   /** returns the command text after the wake word, or null */
   static String wake(String t) { java.util.regex.Matcher m = WAKE.matcher(t); return m.matches() ? m.group(2).trim() : null; }
 
@@ -132,7 +132,7 @@ public class Brain {
     if (text == null || text.trim().length() < 5) return;
     String lc = text.toLowerCase(Locale.US).trim();
     // Skip if it's just the wake word or a mic test
-    if (lc.matches("^(javis|jarvis|whisper|hey javis|ok javis)\\W*$")) return;
+    if (lc.matches("^(javis|whisper|hey javis|ok javis)\\W*$")) return;
     if (Guard.isVoiceTest(text)) return;
     if (Guard.unclear(text) != null) return; // fragments, foreign language misheard
     // This is a substantive owner turn

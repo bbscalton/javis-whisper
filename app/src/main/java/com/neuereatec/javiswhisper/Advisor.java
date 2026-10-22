@@ -21,8 +21,12 @@ final class Advisor {
   static final double[] STRICT = {0.97, 0.95, 0.90}; static final String[] STRICT_NAME = {"Strict", "Normal", "Relaxed"};
 
   /** one-time switch of existing installs to the new Advisor mode (Coach etc. stay available). */
-  static void migrate(Context c) { if (!"1".equals(Prefs.s(c, "adv0123", ""))) { Prefs.put(c, "mode", MODE); Prefs.put(c, "adv0123", "1"); } }
-  static String wakeWord(Context c) { return WakeGate.normalize(Prefs.s(c, "wake_word", "jarvis")); }
+  static void migrate(Context c) {
+    if (!"1".equals(Prefs.s(c, "adv0123", ""))) { Prefs.put(c, "mode", MODE); Prefs.put(c, "adv0123", "1"); }
+    // 0.1.24: Calton chose "right cool"; any old/empty wake word setting switches over (a real custom word is kept)
+    if (!"1".equals(Prefs.s(c, "wake0124", ""))) { String w = Prefs.s(c, "wake_word", "").trim().toLowerCase(Locale.US); if (w.isEmpty() || w.equals("jarvis") /* legacy 0.1.23 default, migrated away */) Prefs.put(c, "wake_word", WakeGate.DEFAULT); Prefs.put(c, "wake0124", "1"); }
+  }
+  static String wakeWord(Context c) { return WakeGate.normalize(Prefs.s(c, "wake_word", WakeGate.DEFAULT)); }
   static int strictIdx(Context c) { return Prefs.i(c, "wake_strict", 1, 0, 2); }
 
   final WhisperService svc; volatile String word; volatile WakeGate gate; final PcmRing ring = PcmRing.seconds(PRE_SECONDS, SR);
@@ -33,7 +37,7 @@ final class Advisor {
 
   Advisor(WhisperService s) {
     svc = s; String w = wakeWord(s);
-    gate = new WakeGate(w, STRICT[strictIdx(s)], 0.35 * w.split(" ").length, COOLDOWN_MS); word = w;
+    gate = new WakeGate(w, STRICT[strictIdx(s)], 0.25 * w.split(" ").length, COOLDOWN_MS); word = w;
   }
 
   /** copies the bundled model out of the APK once (model files only – never audio) and builds the recognizer. */
@@ -44,9 +48,9 @@ final class Advisor {
       model = new org.vosk.Model(path);
       String phrase = word;
       for (String w : phrase.split(" ")) if (!VoskWords.known(model, w)) {
-        WhisperService.log("⚠ Wake word \"" + phrase + "\" isn't in the offline dictionary – using \"jarvis\". Pick a common English word in Settings.");
-        phrase = "jarvis"; break; }
-      if (!phrase.equals(word)) { word = phrase; gate = new WakeGate(phrase, STRICT[strictIdx(svc)], 0.35, COOLDOWN_MS); }
+        WhisperService.log("⚠ Wake word \"" + phrase + "\" isn't in the offline dictionary – using \"right cool\". Pick common English words in Settings.");
+        phrase = WakeGate.DEFAULT; break; }
+      if (!phrase.equals(word)) { word = phrase; gate = new WakeGate(phrase, STRICT[strictIdx(svc)], 0.25 * phrase.split(" ").length, COOLDOWN_MS); }
       rec = new org.vosk.Recognizer(model, SR, WakeGate.grammar(phrase, null)); rec.setWords(true);
       WhisperService.log("👂 Advisor ready – say \"" + cap(phrase) + "\" for advice (" + STRICT_NAME[strictIdx(svc)] + ", conf ≥ " + gate.threshold + "). Listening on-device only; audio stays in memory and is wiped after each use.");
       lastState = "Waiting for \"" + cap(phrase) + "\"";
@@ -80,7 +84,7 @@ final class Advisor {
     if (sc < 0) return;
     if (!gate.accept(ws, now)) { WhisperService.log(String.format(Locale.US, "(heard something like \"%s\" – conf %.2f below %.2f or cooling down – ignored)", word, sc, gate.threshold)); return; }
     pre = ring.snapshot(); ring.clear(); postLen = 0; quiet = 0; state = 1; lastState = "Listening for 4 s…";
-    WhisperService.log(String.format(Locale.US, "👂 Wake word \"%s\" (conf %.2f) – capturing up to 4 s more", cap(word), sc));
+    WhisperService.log(String.format(Locale.US, "👂 Wake word \"%s\" (conf %.2f) – capturing up to 4 s more", word, sc));
   }
 
   void advise(short[] preAudio, short[] postAudio) {

@@ -13,7 +13,11 @@ final class WakeGate {
   WakeGate(String phrase, double threshold, double minDurSec, long cooldownMs) {
     this.phrase = normalize(phrase).split(" "); this.threshold = threshold; this.minDur = minDurSec; this.cooldownMs = cooldownMs;
   }
-  static String normalize(String p) { String s = p == null ? "" : p.toLowerCase(Locale.US).replaceAll("[^a-z' ]", " ").replaceAll("\\s+", " ").trim(); return s.isEmpty() ? "jarvis" : s; }
+  static final String DEFAULT = "right cool";
+  static String normalize(String p) { String s = p == null ? "" : p.toLowerCase(Locale.US).replaceAll("[^a-z' ]", " ").replaceAll("\\s+", " ").trim(); return s.isEmpty() ? DEFAULT : s; }
+  static final double MAX_GAP = 0.12; // s between phrase words: "right" must be IMMEDIATELY followed by "cool"
+  /** a phrase directly preceded by one of these is a different expression ("all right, cool", "alright cool") */
+  static final Set<String> PREFIX_REJECT = new HashSet<>(Arrays.asList("all", "alright", "al"));
   static List<Word> parse(String json) {
     List<Word> out = new ArrayList<>();
     try { JSONArray r = new JSONObject(json).optJSONArray("result"); if (r != null) for (int i = 0; i < r.length(); i++) { JSONObject o = r.getJSONObject(i);
@@ -25,12 +29,19 @@ final class WakeGate {
   synchronized boolean coolingDown(long now) { return now - lastTrigger < cooldownMs; }
   /** restart the cooldown (called when a trigger starts AND when the advisory finishes speaking). */
   synchronized void markTrigger(long now) { lastTrigger = now; }
-  /** best min-confidence of a consecutive phrase match, or -1. */
+  /** Later phrase words only need this confidence: the "right school"/"white cool" decoys compete for "cool" in the lattice, so its
+   *  posterior is split even when "cool" is the top hypothesis (espeak test: real "right cool" gave cool 0.59–0.77). The decoded word
+   *  itself must still be "cool", which is what rejects "right school". */
+  static final double TAIL_FLOOR = 0.55;
+  /** confidence of the first phrase word for a valid consecutive match (later words ≥ TAIL_FLOOR, tight gaps), or -1. */
   double score(List<Word> ws) {
     double best = -1;
     for (int i = 0; i + phrase.length <= ws.size(); i++) {
       double mn = 1; boolean ok = true;
-      for (int k = 0; k < phrase.length; k++) { Word w = ws.get(i + k); if (!phrase[k].equals(w.w)) { ok = false; break; } mn = Math.min(mn, w.conf); }
+      for (int k = 0; k < phrase.length; k++) { Word w = ws.get(i + k); if (!phrase[k].equals(w.w)) { ok = false; break; } if (k == 0) mn = w.conf; else if (w.conf < TAIL_FLOOR) ok = false; }
+      if (!ok) continue;
+      for (int k = 1; k < phrase.length && ok; k++) if (ws.get(i + k).start - ws.get(i + k - 1).end > MAX_GAP) ok = false;
+      if (ok && i > 0 && PREFIX_REJECT.contains(ws.get(i - 1).w) && ws.get(i).start - ws.get(i - 1).end <= 0.4) ok = false;
       if (!ok) continue;
       double dur = ws.get(i + phrase.length - 1).end - ws.get(i).start;
       if (dur < minDur || dur > 2.5 * phrase.length) continue;
@@ -47,9 +58,9 @@ final class WakeGate {
   /** Vosk grammar: the phrase, sound-alike decoys that soak up near misses, and [unk] for everything else. */
   static String grammar(String phrase, Collection<String> known) {
     JSONArray g = new JSONArray(); g.put(normalize(phrase));
-    for (String d : DECOYS) if (!normalize(phrase).contains(d) && (known == null || known.contains(d))) g.put(d);
+    for (String d : DECOYS) if (!normalize(phrase).equals(d) && (known == null || known.contains(d))) g.put(d);
     g.put("[unk]"); return g.toString();
   }
-  // decoys chosen by testing espeak voices against vosk-model-small-en-us-0.15 ("harvest" alone scored 0.94 without them)
-  static final List<String> DECOYS = Arrays.asList("harvest", "service", "nervous", "travis", "mavis", "garbage", "marvelous", "starving", "jars", "barber", "doctor");
+  // sound-alikes / partial matches that soak up near misses (tested with espeak voices against vosk-model-small-en-us-0.15)
+  static final List<String> DECOYS = Arrays.asList("right", "cool", "all right", "alright", "right school", "white cool", "school", "white", "bright", "write", "tool", "pool", "cold");
 }
