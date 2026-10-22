@@ -98,8 +98,8 @@ public class MainActivity extends Activity {
     voiceId.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "voice_id", voiceId.getText().toString().trim().isEmpty() ? "ara" : voiceId.getText().toString().trim().toLowerCase(Locale.US)); });
 
     // 0.1.23 Advisor mode: wake word + strictness (on-device detector; applies on next START)
-    c.addView(text(this, "Advisor wake word (one common English word, default jarvis – applies on next START)", 13, MUTED), lp(this, -1, -2, 10));
-    EditText ww = edit(this, "jarvis", Prefs.s(this, "wake_word", "jarvis")); c.addView(ww);
+    c.addView(text(this, "Advisor wake phrase (default: right cool – said as one phrase; common English words only; applies on next START)", 13, MUTED), lp(this, -1, -2, 10));
+    EditText ww = edit(this, WakeGate.DEFAULT, Prefs.s(this, "wake_word", WakeGate.DEFAULT)); c.addView(ww);
     ww.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "wake_word", WakeGate.normalize(ww.getText().toString())); });
     Button strictB = button(this, "", CARD); c.addView(strictB, lp(this, -1, -2, 6));
     Runnable pst = () -> strictB.setText("Wake word strictness: " + Advisor.STRICT_NAME[Advisor.strictIdx(this)] + " (confidence ≥ " + Advisor.STRICT[Advisor.strictIdx(this)] + ")"); pst.run();
