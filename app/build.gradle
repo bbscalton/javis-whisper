@@ -2,9 +2,10 @@ plugins { id 'com.android.application' }
 android {
   namespace 'com.neuereatec.javiswhisper'
   compileSdk 34
-  defaultConfig { applicationId 'com.neuereatec.javiswhisper'; minSdk 28; targetSdk 34; versionCode 23; versionName '0.1.22' }
+  defaultConfig { applicationId 'com.neuereatec.javiswhisper'; minSdk 28; targetSdk 34; versionCode 24; versionName '0.1.23'; ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' } }
   signingConfigs { ci { def f = file(System.getenv('KS_FILE') ?: 'none'); if (f.exists()) { storeFile f; storePassword System.getenv('KS_PASS'); keyAlias 'jw'; keyPassword System.getenv('KS_PASS') } } }
   buildTypes { release { minifyEnabled false; signingConfig signingConfigs.ci.storeFile ? signingConfigs.ci : signingConfigs.debug } }
+  testOptions { unitTests.returnDefaultValues = true }
   compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
@@ -13,4 +14,9 @@ dependencies {
   implementation 'androidx.core:core:1.13.1'
   implementation 'androidx.room:room-runtime:2.6.1'
   annotationProcessor 'androidx.room:room-compiler:2.6.1'
+  // 0.1.23 on-device wake word (Vosk keyword grammar, offline)
+  implementation 'com.alphacephei:vosk-android:0.3.47@aar'
+  implementation 'net.java.dev.jna:jna:5.13.0@aar'
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.json:json:20231013'
 }

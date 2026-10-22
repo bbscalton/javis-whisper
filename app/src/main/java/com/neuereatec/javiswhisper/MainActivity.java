@@ -11,7 +11,7 @@ public class MainActivity extends Activity {
   void paintChip() { String o = Prefs.s(this, "setting", "auto"); settingChip.setText("🧭 Setting: " + ("auto".equals(o) ? "Auto" + (WhisperService.running ? " – " + WhisperService.settingShown.replace(" (auto)", "") : "") : o + " (your choice)") + "  · tap to change"); }
 
   @Override protected void onCreate(Bundle b) {
-    super.onCreate(b); WhisperService.initLog(this);
+    super.onCreate(b); WhisperService.initLog(this); Advisor.migrate(this);
     LinearLayout outer = new LinearLayout(this); outer.setOrientation(LinearLayout.VERTICAL); outer.setBackgroundColor(BG);
     ScrollView sv = new ScrollView(this); sv.setBackgroundColor(BG); outer.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
     LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); int p = px(this, 16); root.setPadding(p, px(this, 28), p, p); sv.addView(root, new ScrollView.LayoutParams(-1, -2));
@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
     voiceB.setOnClickListener(v -> { if (!WhisperService.running) { alert("Teach javis my voice", "Press START first, then tap this again and say one normal sentence."); return; }
       Prefs.put(this, "cal_pending", "1"); alert("Teach javis my voice", "Now say one normal sentence, ‘This is [your name] doing a mic test.’ It’s kept as an encrypted voice sample on this phone only (max 3) and never sent to PC."); });
     LinearLayout modes = new LinearLayout(this); root.addView(modes, lp(this, -1, -2, 12));
-    for (String[] m : new String[][]{{"coach", "Coach"}, {"translate", "Translate"}, {"street", "Street"}}) {
+    for (String[] m : new String[][]{{"advisory", "Advisor"}, {"coach", "Coach"}, {"translate", "Translate"}, {"street", "Street"}}) {
       Button bt = button(this, m[1], CARD); modeBtns.put(m[0], bt); LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, -2, 1); l.setMargins(px(this, 3), 0, px(this, 3), 0); modes.addView(bt, l);
       bt.setOnClickListener(v -> { Prefs.put(this, "mode", m[0]); paintModes(); WhisperService.log("Mode → " + m[1]); });
     }
@@ -97,6 +97,13 @@ public class MainActivity extends Activity {
     EditText voiceId = edit(this, "ara", Prefs.s(this, "voice_id", "ara")); c.addView(voiceId);
     voiceId.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "voice_id", voiceId.getText().toString().trim().isEmpty() ? "ara" : voiceId.getText().toString().trim().toLowerCase(Locale.US)); });
 
+    // 0.1.23 Advisor mode: wake word + strictness (on-device detector; applies on next START)
+    c.addView(text(this, "Advisor wake word (one common English word, default jarvis – applies on next START)", 13, MUTED), lp(this, -1, -2, 10));
+    EditText ww = edit(this, "jarvis", Prefs.s(this, "wake_word", "jarvis")); c.addView(ww);
+    ww.setOnFocusChangeListener((v, f) -> { if (!f) Prefs.put(this, "wake_word", WakeGate.normalize(ww.getText().toString())); });
+    Button strictB = button(this, "", CARD); c.addView(strictB, lp(this, -1, -2, 6));
+    Runnable pst = () -> strictB.setText("Wake word strictness: " + Advisor.STRICT_NAME[Advisor.strictIdx(this)] + " (confidence ≥ " + Advisor.STRICT[Advisor.strictIdx(this)] + ")"); pst.run();
+    strictB.setOnClickListener(v -> { Prefs.put(this, "wake_strict", String.valueOf((Advisor.strictIdx(this) + 1) % 3)); pst.run(); });
     c.addView(text(this, "Latency (applies on next START): coach pause min ms · max ms · end-of-phrase frames (×20 ms)", 13, MUTED), lp(this, -1, -2, 10));
     EditText lat = edit(this, "450 1000 22", Prefs.s(this, "pause_min", "450") + " " + Prefs.s(this, "pause_max", "1000") + " " + Prefs.s(this, "end_sil", "22")); c.addView(lat);
     lat.setOnFocusChangeListener((v, f) -> { if (f) return; String[] p = lat.getText().toString().trim().split("[\\s,]+"); String[] k = {"pause_min", "pause_max", "end_sil"}, dv = {"450", "1000", "22"};

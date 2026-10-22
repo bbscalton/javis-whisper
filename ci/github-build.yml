@@ -14,9 +14,11 @@ jobs:
       - name: Keystore
         env: { KS_B64: '${{ secrets.KS_B64 }}' }
         run: if [ -n "$KS_B64" ]; then echo "$KS_B64" | base64 -d > $RUNNER_TEMP/jw.p12; echo "KS_FILE=$RUNNER_TEMP/jw.p12" >> $GITHUB_ENV; fi
+      - name: Wake-word model
+        run: bash tools/fetch-vosk-model.sh
       - name: Build
         env: { KS_PASS: '${{ secrets.KS_PASS }}' }
-        run: chmod +x gradlew && ./gradlew --no-daemon assembleRelease && cp app/build/outputs/apk/release/app-release.apk JavisWhisper.apk
+        run: chmod +x gradlew && ./gradlew --no-daemon testReleaseUnitTest assembleRelease && cp app/build/outputs/apk/release/app-release.apk JavisWhisper.apk
       - uses: actions/upload-artifact@v4
         with: { name: JavisWhisper, path: JavisWhisper.apk }
       - name: Release

@@ -29,6 +29,8 @@ public abstract class Db extends RoomDatabase {
     @Query("SELECT * FROM turns WHERE sessionId=:sid ORDER BY id") List<Turn> turns(long sid);
     @Query("SELECT * FROM turns WHERE sessionId=:sid AND ts>=:from ORDER BY id") List<Turn> turnsSince(long sid, long from);
     @Query("SELECT COUNT(*) FROM turns WHERE sessionId=:sid") int count(long sid);
+    /** 0.1.23 text-only advisory notes (newest first), across sessions */
+    @Query("SELECT * FROM turns WHERE kind='advice_note' ORDER BY id DESC LIMIT :n") List<Turn> adviceNotes(int n);
     @Query("SELECT COALESCE(MAX(ts), 0) FROM turns WHERE sessionId=:sid") long lastTs(long sid);
     @Query("SELECT * FROM (SELECT * FROM turns WHERE sessionId=:sid AND ts>=:from ORDER BY id DESC LIMIT :n) ORDER BY id") List<Turn> tail(long sid, long from, int n);
     @Insert long add(Person p); @Update void update(Person p); @Delete void delete(Person p);

@@ -51,7 +51,8 @@ public class WhisperService extends Service {
   volatile boolean heardSpeech; Chan me, them; boolean dual; int sens; String mode, prebrief, model;
   // 0.1.11: keep one STT websocket pre-opened so the next phrase streams with no connection setup
   volatile Xai.Stt spareStt; volatile String sttLang = "en";
-  synchronized void refillStt() { if (xai == null || !running) return; Xai.Stt s = spareStt; if (s != null && s.fresh()) return; if (s != null) s.cancel(); try { spareStt = xai.stt(sttLang); } catch (Throwable t) { spareStt = null; } }
+  volatile Advisor advisor; // 0.1.23 advisory layer (wake word → one whisper → silence)
+  synchronized void refillStt() { if (xai == null || !running || advisor != null || Advisor.MODE.equals(mode)) return; Xai.Stt s = spareStt; if (s != null && s.fresh()) return; if (s != null) s.cancel(); try { spareStt = xai.stt(sttLang); } catch (Throwable t) { spareStt = null; } }
   synchronized Xai.Stt takeStt() { Xai.Stt s = spareStt; spareStt = null; if (s == null || !s.fresh()) { if (s != null) s.cancel(); s = xai.stt(sttLang); } try { sched.execute(this::refillStt); } catch (Throwable ignored) {} return s; }
   public static volatile long meMatchAt; public static volatile boolean ownerKnown; public static volatile String matchName = ""; public static volatile String curSpeaker = null; public static volatile long curAt; public static volatile Proximity.Feat lastFeat; // 0.1.13 live per-utterance speaker // 0.1.12 owner-voice badge
   /** 0.1.13 Lock: enrolled voices allowed while locked (Prefs "lock_allow", ';'-list; empty = all enrolled). */
@@ -106,8 +107,8 @@ public class WhisperService extends Service {
       xai = new Xai(key); model = Prefs.s(this, "model", "grok-4.20-non-reasoning");
       tts = xai.tts(Prefs.s(this, "voice_id", "ara"));
       wl = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jw:listen"); wl.acquire(6 * 3600_000L);
-      mode = Prefs.s(this, "mode", "coach"); prebrief = Prefs.s(this, "prebrief", "");
-      dual = "1".equals(Prefs.s(this, "dual", "1")); sens = Integer.parseInt(Prefs.s(this, "sens", "1"));
+      Advisor.migrate(this); mode = Prefs.s(this, "mode", "coach"); prebrief = Prefs.s(this, "prebrief", "");
+      dual = "1".equals(Prefs.s(this, "dual", "1")) && !Advisor.MODE.equals(mode); // 0.1.23 advisor: earbud mic only sens = Integer.parseInt(Prefs.s(this, "sens", "1"));
       // 0.1.9 housekeeping (once): reset the learned note polluted by test chatter; volume 1.0 is too loud in an earbud
       if (!"1".equals(Prefs.s(this, "reset019", ""))) { Prefs.put(this, "learned", ""); if (Float.parseFloat(Prefs.s(this, "vol", "0.35")) > 0.8f) Prefs.put(this, "vol", "0.6"); Prefs.put(this, "reset019", "1"); log("0.1.9: learned note reset; whisper volume capped at 60% (change in Settings)"); }
       heardSpeech = false;
@@ -173,6 +174,7 @@ public class WhisperService extends Service {
       // 0.1.5 warmer pacing: Ara a touch slower (time-stretch, same pitch); setting "pace" 0.85-1.1
       try { track.setPlaybackParams(new PlaybackParams().setSpeed(Float.parseFloat(Prefs.s(this, "pace", "0.94"))).setPitch(1f)); } catch (Throwable t) { log("(pacing not supported on this phone – normal speed)"); }
       track.play();
+      if (Advisor.MODE.equals(mode)) { Advisor ad = new Advisor(this); if (ad.load()) advisor = ad; else { status = "Wake word unavailable"; log("Advisor could not start – switch to Coach mode or reinstall."); } }
       me = new Chan(dual ? "Me" : "Speaker", true); them = dual ? new Chan("Them", false) : null;
       for (Chan c : chans()) { c.restart = "initial open"; c.th = new Thread(() -> readLoop(c), "jw-" + c.label); c.th.start(); }
       devCb = new AudioDeviceCallback() {
@@ -183,7 +185,7 @@ public class WhisperService extends Service {
       sched.scheduleWithFixedDelay(this::watchdog, 2, 2, TimeUnit.SECONDS);
       sched.scheduleWithFixedDelay(() -> { if (tts != null) tts.ensure(); refillStt(); }, 5, 20, TimeUnit.SECONDS); // keep the TTS socket warm
       sched.scheduleWithFixedDelay(() -> { try { readiness = brain.readiness(); readyNoisy = brain.noisy(); saveCtx(false); } catch (Throwable ignored) {} }, 5, 5, TimeUnit.SECONDS); // 0.1.15 meter staleness decay
-      status = "Listening";
+      status = advisor != null ? "Listening" : status.startsWith("Wake") ? status : "Listening";
     } catch (Throwable t) { log("Start failed: " + t); status = "Error: " + t.getMessage(); }
   }
   Chan[] chans() { return them == null ? new Chan[]{me} : new Chan[]{me, them}; }
@@ -196,6 +198,7 @@ public class WhisperService extends Service {
       sched.shutdownNow();
       if (me != null) for (Chan c : chans()) { try { c.rec.stop(); } catch (Throwable ignored) {} try { if (c.th != null) c.th.join(1500); } catch (Throwable ignored) {} try { c.rec.release(); } catch (Throwable ignored) {} }
       try { proc.shutdown(); proc.awaitTermination(8, TimeUnit.SECONDS); } catch (Throwable ignored) {}
+      try { Advisor ad = advisor; advisor = null; if (ad != null) ad.close(); } catch (Throwable ignored) {}
       try { if (track != null) { track.stop(); track.release(); } } catch (Throwable ignored) {}
       if (tts != null) tts.close();
       stopBt();
@@ -297,6 +300,8 @@ public class WhisperService extends Service {
       double s = 0; for (int i = 0; i < got; i++) s += (double) f[i] * f[i]; float rms = (float) Math.sqrt(s / got); if (rms > c.peak) c.peak = rms;
       float thr = Math.max(SENS_MIN[sens], c.noise * SENS_MARGIN[sens]); c.snr = rms / Math.max(c.noise, 1);
       if (c == me) { levelMe = rms; thrMe = thr; } else { levelThem = rms; thrThem = thr; }
+      // 0.1.23 advisor mode: frames go only to the on-device wake word + RAM ring buffer (nothing is sent anywhere until the wake word)
+      { Advisor ad = advisor; if (ad != null) { c.noise = c.noise * 0.995f + Math.min(rms, c.noise * 3) * 0.005f; if (c.noise < 40) c.noise = 40; ad.frame(f, got, rms, c.noise); continue; } }
       boolean v = rms > thr; byte[] pcm = bytes(f, got);
       Utt u = cur;
       if (u != null) { // an utterance is open: track SNR of both mics for the speaker label
