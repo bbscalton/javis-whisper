@@ -6,3 +6,4 @@ app/build/
 *.jks
 .env*
 secrets/
+app/src/main/assets/model-en-us/
